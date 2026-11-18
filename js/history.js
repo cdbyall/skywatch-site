@@ -60,27 +60,50 @@
   // Real rain: the nearest rain gauge (volunteer CoCoRaHS and co-op gauges, through the ACIS archive). Model rain for past
   // days invents light rain on dry days, so a measured amount always wins. A morning reading covers the 24 hours before it,
   // so a 7 AM reading belongs to the day before.
-  let gStn = null;
+  // Real rain, on the right day. The nearest rain gauge (volunteer CoCoRaHS and co-op gauges, through the ACIS archive)
+  // gives the measured amount, but it is read once each morning, so one reading covers the end of one day and the start
+  // of the next. The hour-by-hour radar rain record for this exact spot (NOAA Stage IV / MRMS: radar checked against
+  // gauges, through the Iowa Environmental Mesonet) says when it fell, so each reading is split between the two days
+  // the way the radar saw it. With no gauge nearby, the radar record alone is used. Model rain is never shown as fact.
+  let gStn = null, rainSrc = null;
   async function gauge(loc, g) {
-    gStn = null;
+    gStn = null; rainSrc = null;
     try {
       const add = (s, k) => { const t = new Date(s + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + k); return t.toISOString().slice(0, 10); };
       const last = new Date(Y, M + 1, 0).getDate(), a = iso(Y, M, 1), b = iso(Y, M, last), today = todayIso(), e = add(b, 1) < today ? add(b, 1) : today;
       if (a > today) return;
-      const j = await api.json('https://data.rcc-acis.org/MultiStnData?params=' + encodeURIComponent(JSON.stringify({ bbox: [loc.lon - 0.25, loc.lat - 0.2, loc.lon + 0.25, loc.lat + 0.2].map(v => v.toFixed(3)).join(','), sdate: a, edate: e, elems: [{ name: 'pcpn', add: 't' }], meta: 'name,ll' })), b < today ? 86400 : 1800);
+      const list = []; for (let d = add(a, -1); d <= (b < today ? b : today); d = add(d, 1)) list.push(d);
+      const R = {}, sum = arr => arr.reduce((t, v) => t + v, 0);
+      const radar = Promise.all(list.map(function oneDay(d) {
+        return api.json('https://mesonet.agron.iastate.edu/iemre/hourly/' + d + '/' + loc.lat.toFixed(4) + '/' + loc.lon.toFixed(4) + '/json', d < today ? 30 * 86400 : 900)
+          .then(j => { const h = new Array(24).fill(null); (j.data || []).forEach(x => { const hr = +String(x.valid_local).slice(11, 13); if (x.hourly_precip_in != null && x.hourly_precip_in !== '') h[hr] = Math.max(0, +x.hourly_precip_in); }); if (h.some(v => v != null)) R[d] = h.map(v => v || 0); })
+          .catch(() => { });
+      }));
+      const gj = api.json('https://data.rcc-acis.org/MultiStnData?params=' + encodeURIComponent(JSON.stringify({ bbox: [loc.lon - 0.25, loc.lat - 0.2, loc.lon + 0.25, loc.lat + 0.2].map(v => v.toFixed(3)).join(','), sdate: add(a, -1), edate: e, elems: [{ name: 'pcpn', add: 't' }], meta: 'name,ll' })), b < today ? 86400 : 1800).catch(() => null);
+      const [, j] = await Promise.all([radar, gj]);
       if (g !== gen) return;
+      const tot = {}, cover = {}, quiet = {}, put = (d, v) => { tot[d] = (tot[d] || 0) + v; };
       const km = ll => { const r = Math.PI / 180, q = Math.sin((ll[1] - loc.lat) * r / 2) ** 2 + Math.cos(loc.lat * r) * Math.cos(ll[1] * r) * Math.sin((ll[0] - loc.lon) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(q)); };
-      const cands = (j.data || []).map(s => ({ s, km: km(s.meta.ll), got: s.data.filter(v => v[0][0] !== 'M').length })).filter(c => c.km <= 20 && c.got >= s0(j) * 0.6).sort((p, q) => p.km - q.km);
-      if (!cands.length) return;
-      const c = cands[0], dts = []; for (let k = 0; k < c.s.data.length; k++) dts.push(add(a, k));
-      gStn = { name: c.s.meta.name.replace(/\b\w+/g, w => /^[NSEW]{1,3}$/.test(w) ? w : w[0] + w.slice(1).toLowerCase()), mi: c.km / 1.609, km: c.km };
-      c.s.data.forEach(function reading(v, k) {
-        const raw = v[0][0], hr = +v[0][1]; if (raw === 'M' || raw == null || /A$/.test(raw)) return;
-        const amt = raw === 'T' ? 0 : parseFloat(raw); if (!isFinite(amt)) return;
-        const day = hr && hr < 12 ? add(dts[k], -1) : dts[k], d = days[day]; if (!d || d.kind === 'forecast') return;
-        d.g = { pr: dP(amt), raw: amt, hr, trace: raw === 'T', read: dts[k] };
-      });
-    } catch (e) { /* no gauge nearby or the archive is quiet: model rain stays */ }
+      const cands = j ? (j.data || []).map(s => ({ s, km: km(s.meta.ll), got: s.data.filter(v => v[0][0] !== 'M').length })).filter(c => c.km <= 20 && c.got >= s0(j) * 0.6).sort((p, q) => p.km - q.km) : [];
+      if (cands.length) {
+        const c = cands[0];
+        gStn = { name: c.s.meta.name.replace(/\b\w+/g, w => /^[NSEW]{1,3}$/.test(w) ? w : w[0] + w.slice(1).toLowerCase()), mi: c.km / 1.609, km: c.km };
+        c.s.data.forEach(function reading(v, k) {
+          const raw = v[0][0], hr = +v[0][1] || 7, date = add(a, k - 1), prev = add(date, -1); if (raw === 'M' || raw == null || raw === 'S' || /A$/.test(raw)) return;
+          const amt = raw === 'T' ? 0 : parseFloat(raw); if (!isFinite(amt)) return;
+          const pa = R[prev] ? sum(R[prev].slice(hr)) : null, pb = R[date] ? sum(R[date].slice(0, hr)) : null;
+          if (pa != null && pb != null && pa + pb > 0.005) { put(prev, amt * pa / (pa + pb)); put(date, amt * pb / (pa + pb)); }
+          else { const d0 = hr < 12 ? prev : date; put(d0, amt); if (pa != null && pb != null) quiet[d0] = true; } // radar saw nothing: fog drip or drizzle; with no radar, the bulk of a morning reading is the day before
+          (cover[prev] = cover[prev] || {}).late = hr; (cover[date] = cover[date] || {}).early = hr;
+        });
+        // hours no reading covers yet (today, or yesterday before this morning's reading is in): the radar record fills them
+        for (const d of list) { if (!R[d]) continue; const cv = cover[d] || {}; if (cv.early == null && cv.late == null) continue;
+          if (cv.late == null) put(d, sum(R[d].slice(cv.early))); if (cv.early == null) put(d, sum(R[d].slice(0, cv.late))); }
+        rainSrc = 'gauge';
+      } else if (Object.keys(R).length) { for (const d in R) put(d, sum(R[d])); rainSrc = 'radar'; }
+      for (const d in tot) { const x = days[d]; if (!x || x.kind === 'forecast') continue; if (rainSrc === 'gauge' && !cover[d] && !R[d]) continue; x.g = { pr: dP(tot[d]), raw: tot[d], src: rainSrc, sofar: x.kind === 'today', quiet: !!quiet[d] && !(R[d] && sum(R[d]) > 0.005) }; }
+      if (rainSrc === 'radar') for (const d of list) { const x = days[d]; if (x && !x.g && R[d] && x.kind !== 'forecast') x.g = { pr: 0, raw: 0, src: 'radar' }; }
+    } catch (e) { /* no gauge or radar record here (outside the US): rain stays an estimate and is marked so */ }
   }
   // the app's own saved days from a nearby station at the same height (see diary.js): the best record of all, so it wins
   let dName = null;
@@ -94,7 +117,8 @@
   function best(d) {
     const v = d.m ? { hi: d.m.hi, lo: d.m.lo, pr: d.m.pr == null ? d.pr : d.m.pr, code: d.code } : { hi: d.hi, lo: d.lo, pr: d.pr, code: d.code };
     // with a gauge, the day's word follows the measured amount, not the model's
-    if (d.g) { v.pr = d.g.pr; const r = d.g.raw; if (r < 0.01) { if (RAINY(v.code)) v.code = 3; } else if (v.code < 71 || v.code > 77) v.code = r < 0.1 ? 61 : r < 1 ? 63 : 65; }
+    if (d.g) { v.pr = d.g.pr; const r = d.g.raw; if (r < 0.05 || d.g.quiet) { if (RAINY(v.code)) v.code = 3; } else if (v.code < 71 || v.code > 77) v.code = r < 0.2 ? 61 : r < 1 ? 63 : 65; }
+    else v.code = SW.dryCode(v.code, v.pr);
     return v;
   }
 
@@ -110,7 +134,7 @@
     }
     const dist = s => U.us() ? n(s.km / 1.609) + ' mi' : n(s.km) + ' km';
     $('#hiCal').innerHTML = h + '</div><div class="dim small" style="margin-top:10px;line-height:1.5">' +
-      (gStn ? 'Rain is measured by the ' + esc(gStn.name) + ' rain gauge (' + dist(gStn) + ' away), read each morning; each reading is put on the day the rain fell. ' : 'There is no rain gauge close by, so rain marked ≈ is an estimate. ') +
+      (rainSrc === 'gauge' ? 'Rain is measured by the ' + esc(gStn.name) + ' rain gauge (' + dist(gStn) + ' away); radar shows which day it fell on. ' : rainSrc === 'radar' ? 'Rain comes from the radar rain record for your exact spot, which is checked against rain gauges. ' : 'There is no rain record here, so rain marked ≈ is an estimate. ') + 'A day gets a rain icon only with at least ' + (U.us() ? '0.05 in' : '1 mm') + '. ' +
       (dName || stn ? 'Highs and lows are measured at ' + esc(dName || stn.name) + (dName ? ' (saved by Skywatch each day)' : '') + '; days marked ≈ have no reading yet. ' : 'There is no thermometer close by, so highs and lows marked ≈ are an estimate for your exact spot from a weather reconstruction, not a measurement. ') +
       'Faded days have not happened yet and show the forecast.</div>';
     $$('.cal-d[data-d]').forEach(e => e.onclick = () => { sel = e.dataset.d; $$('.cal-d').forEach(x => x.classList.toggle('on', x === e)); day(loc, sel); });
@@ -149,7 +173,7 @@
     const iH = ext(T, 1), iL = ext(T, -1), iG = ext(h.wind_gusts_10m || [], 1), sum = arr => arr.reduce((s, v) => s + (v || 0), 0), rain = sum(h.precipitation), wet = U.us() ? 0.01 : 0.2;
     const v = best(x), w = SW.wx(v.code), estT = !soft && !x.m;
     const rainTxt = soft ? ((v.pr || 0) > wet / 2 ? '<b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain is expected.' : 'No rain is expected.')
-      : x.g ? (x.g.raw >= 0.01 ? 'The ' + esc(gStn.name) + ' rain gauge caught <b>' + n(x.g.pr, pd()) + ' ' + U.p() + '</b> (from ' + (x.g.hr ? (x.g.hr % 12 || 12) + (x.g.hr < 12 ? ' AM' : ' PM') : 'its morning reading') + ' this day to the same time the next).' : 'The ' + esc(gStn.name) + ' rain gauge measured ' + (x.g.trace ? 'only a trace of rain' : 'no rain') + '.')
+      : x.g ? (x.g.raw >= 0.01 ? '<b>' + n(x.g.pr, pd()) + ' ' + U.p() + '</b> of rain fell' + (x.g.sofar ? ' so far' : '') : 'No rain fell') + (x.g.quiet ? ' in the ' + esc(gStn.name) + ' rain gauge, but radar saw no rain here, so it was most likely fog drip or a brief drizzle.' : x.g.src === 'gauge' ? ' (measured by the ' + esc(gStn.name) + ' rain gauge, put on the right day using radar).' : ' (radar rain record for this spot, checked against rain gauges).')
       : ((v.pr || 0) > wet / 2 ? 'There is no rain gauge close by; the estimate is about <b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain.' : 'There is no rain gauge close by; the estimate is no rain.');
     const story = (fut ? 'This day has not happened yet. The forecast is ' : x.kind === 'today' ? 'Today is still under way. So far and for the rest of the day: ' : 'It was ') + w.text.toLowerCase() + '. ' + (soft ? 'Expect a high near ' : estT ? 'The high was about ' : 'The high was ') + '<b>' + n(v.hi) + '°</b> around ' + SW.fmt(x.mAt ? x.mAt.hi : h.time[iH], tz, 'hour') + ' and ' + (soft ? 'a low near ' : estT ? 'the low about ' : 'the low was ') + '<b>' + n(v.lo) + '°</b> around ' + SW.fmt(x.mAt ? x.mAt.lo : h.time[iL], tz, 'hour') + (estT ? ' (estimates: no thermometer close by)' : '') + '. ' +
       rainTxt + (x.mGust != null && !soft ? ' The strongest gust measured was ' + n(x.mGust) + ' ' + U.w() + '.' : iG >= 0 ? ' The strongest gust ' + (soft ? 'should be' : 'was') + ' about ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + (soft ? '' : ' (estimate)') + '.' : '');

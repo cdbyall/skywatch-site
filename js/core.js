@@ -109,6 +109,8 @@
     return j;
   }
   SW.fixSnow = fixSnow;
+  // a day only gets a rain icon with enough rain to wet the ground (0.05 in / about 1 mm); a few drops is a cloudy day
+  SW.dryCode = function dryCode(code, pr) { const inch = pr == null ? null : SW.U.us() ? pr : pr / 25.4; return inch != null && inch < 0.05 && ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) ? 3 : code; };
   SW.api = {
     json: (url, ttl) => { const p = raw(url, 'json', ttl == null ? 300 : ttl); return /open-meteo\.com/.test(url) ? p.then(fixSnow) : p; },
     text: (url, ttl) => raw(url, 'text', ttl == null ? 300 : ttl),

@@ -32,7 +32,7 @@
       '</div></div></div>' +
       next24() +
       '<div class="card"><h2>10-day outlook</h2><div class="days">' + dl.time.map(function day(t, i) {
-        const x = SW.wx(dl.weather_code[i]);
+        const x = SW.wx(SW.dryCode(dl.weather_code[i], dl.precipitation_sum[i]));
         return '<div class="day" title="' + x.text + '"><div class="dim small">' + (i ? SW.fmt(t + 43200, tz, 'day') : 'Today') + '</div><div class="i">' + x.icon + '</div><div class="hi">' + n(dl.temperature_2m_max[i]) + '°</div><div class="lo">' + n(dl.temperature_2m_min[i]) + '°</div><div class="p">' + (dl.precipitation_probability_max[i] >= 15 ? '💧' + dl.precipitation_probability_max[i] + '%' : '') + '</div><div class="dim small">' + (dl.precipitation_sum[i] > 0 ? n(dl.precipitation_sum[i], U.us() ? 2 : 1) + ' ' + U.p() : '&nbsp;') + '</div></div>';
       }).join('') + '</div></div>' +
       '<div class="grid g2">' +

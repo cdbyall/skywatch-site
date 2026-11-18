@@ -80,7 +80,7 @@
       const stn = s.features[0];
       if (stn) {
         const o = (await api.json(stn.id + '/observations/latest', 300)).properties;
-        if (o && o.temperature && o.temperature.value != null && $('#fcObs')) $('#fcObs').innerHTML = 'Measured at ' + esc(stn.properties.name) + ': <b style="color:var(--text)">' + n(U.cT(o.temperature.value)) + U.t() + '</b>' + (o.textDescription ? ', ' + esc(o.textDescription.toLowerCase()) : '') + ' · ' + SW.fmt(Date.parse(o.timestamp) / 1000, data.timezone, 'time');
+        if (o && o.temperature && o.temperature.value != null && $('#fcObs')) $('#fcObs').innerHTML = 'Measured at ' + esc(stn.properties.name) + (function away(c) { if (!c) return ''; const r = Math.PI / 180, a = Math.sin((c[1] - loc.lat) * r / 2) ** 2 + Math.cos(loc.lat * r) * Math.cos(c[1] * r) * Math.sin((c[0] - loc.lon) * r / 2) ** 2, km = 12742 * Math.asin(Math.sqrt(a)); return km < 8 ? '' : ' (' + (U.us() ? Math.round(km / 1.609) + ' mi' : Math.round(km) + ' km') + ' away)'; })(stn.geometry && stn.geometry.coordinates) + ': <b style="color:var(--text)">' + n(U.cT(o.temperature.value)) + U.t() + '</b>' + (o.textDescription ? ', ' + esc(o.textDescription.toLowerCase()) : '') + ' · ' + SW.fmt(Date.parse(o.timestamp) / 1000, data.timezone, 'time');
       }
     } catch (e) {
       box.innerHTML = '<div class="state">The National Weather Service text forecast covers the United States only' + (/404|Not Found|Unable/i.test(e.message) ? '.' : ' (' + esc(e.message) + ').') + '</div>';

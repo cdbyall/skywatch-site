@@ -46,7 +46,9 @@
       if (stnFor !== key) {
         stn = null; stnFor = key;
         const p = await SW.nwsPoint(loc), st2 = p.relativeLocation && p.relativeLocation.properties.state, list = await api.json(p.observationStations, 86400);
-        for (const f of list.features.slice(0, 6)) { const id = f.properties.stationIdentifier; if (/^[KP][A-Z0-9]{3}$/.test(id)) { stn = { id: id[0] === 'K' ? id.slice(1) : id, name: f.properties.name, net: (id.slice(0, 2) === 'PA' ? 'AK' : id.slice(0, 2) === 'PH' ? 'HI' : st2) + '_ASOS' }; break; } }
+        // only a station that really is nearby: an inland airport 40 miles away (Santa Rosa for the Sea Ranch) reads nights far colder than the coast
+        const km = f => { const c = f.geometry && f.geometry.coordinates; if (!c) return 1e9; const r = Math.PI / 180, a = Math.sin((c[1] - loc.lat) * r / 2) ** 2 + Math.cos(loc.lat * r) * Math.cos(c[1] * r) * Math.sin((c[0] - loc.lon) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(a)); };
+        for (const f of list.features.slice(0, 6)) { const id = f.properties.stationIdentifier; if (/^[KP][A-Z0-9]{3}$/.test(id) && km(f) <= 25) { stn = { id: id[0] === 'K' ? id.slice(1) : id, name: f.properties.name, net: (id.slice(0, 2) === 'PA' ? 'AK' : id.slice(0, 2) === 'PH' ? 'HI' : st2) + '_ASOS' }; break; } }
       }
       if (!stn) return;
       const j = await api.json('https://mesonet.agron.iastate.edu/api/1/daily.json?station=' + stn.id + '&network=' + stn.net + '&year=' + Y + '&month=' + (M + 1), 3600);

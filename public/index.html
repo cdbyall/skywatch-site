@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skywatch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0e16">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: https:; img-src 'self' data: blob: https: file:; script-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><img src="icon.png" alt=""><span>Skywatch</span></div>
+  <div class="locwrap">
+    <input id="locSearch" type="text" placeholder="Search a town, city or zip…" autocomplete="off" spellcheck="false">
+    <div id="locResults" class="menu hidden"></div>
+  </div>
+  <div id="locChips" class="chips"></div>
+  <div class="spacer"></div>
+  <div id="rainPill" class="pill hidden"></div>
+  <div id="nowLine" class="nowline"></div>
+  <div class="locwrap"><button id="notifyBtn" class="btn ghost icon" title="Notifications"><svg viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2.2h-15z"/><path d="M10 20.6a2 2 0 0 0 4 0"/></svg></button><div id="notifyMenu" class="menu hidden" style="left:auto;right:0;width:360px;padding:10px 14px"></div></div>
+  <button id="explainBtn" class="btn ghost" title="Explain mode"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.2a2.8 2.8 0 1 1 4.2 2.4c-.9.6-1.5 1.1-1.5 2.2M12 17.2v.2"/></svg><span>Explain</span></button>
+  <button id="unitBtn" class="btn ghost" title="Switch units"></button>
+  <button id="refreshBtn" class="btn ghost icon" title="Refresh everything"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
+</header>
+
+<nav id="rail">
+  <button data-view="map" class="on"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6.4-6.4"/></svg><span>Radar</span></button>
+  <button data-view="forecast"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg><span>Forecast</span></button>
+  <button data-view="lookup"><svg viewBox="0 0 24 24"><path d="M12 3l2.5 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.3 6.7 19.2l1.2-5.9L3.5 9.2l6-.7z"/></svg><span>Look Up</span></button>
+  <button data-view="history"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8.5 3v4M15.5 3v4"/></svg><span>History</span></button>
+  <button data-view="models"><svg viewBox="0 0 24 24"><path d="M3 16l5-6 4 3.5L16.5 6 21 11"/><path d="M3 20.5h18"/></svg><span>Models</span></button>
+  <button data-view="sounding"><svg viewBox="0 0 24 24"><path d="M4 21V3M4 21h17"/><path d="M8 21c1-6 7-7 8-17"/><path d="M12 21c0-5 6-8 7-13" opacity=".55"/></svg><span>Sounding</span></button>
+  <button data-view="alerts"><svg viewBox="0 0 24 24"><path d="M12 3.5L22 20H2z"/><path d="M12 10v5M12 17.4v.2"/></svg><span>Alerts</span><b id="alertBadge" class="badge hidden"></b></button>
+  <button data-view="fire"><svg viewBox="0 0 24 24"><path d="M12 3c1 3.5 5 5.5 5 10.5a5 5 0 0 1-10 0c0-2 .8-3.3 2-4.5.3 1.6 1 2.4 2 3 .2-3-.5-6 1-9z"/></svg><span>Fire</span></button>
+  <button data-view="nature"><svg viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14 0 9-4 14-12 14M5 19c2-5 5-8 9-10"/></svg><span>Nature</span></button>
+  <button data-view="drive"><svg viewBox="0 0 24 24"><path d="M4 16l1.6-5.2A2.5 2.5 0 0 1 8 9h8a2.5 2.5 0 0 1 2.4 1.8L20 16v3h-2.5v-1.5h-11V19H4z"/><circle cx="7.8" cy="14.6" r=".9"/><circle cx="16.2" cy="14.6" r=".9"/></svg><span>Drive</span></button>
+  <button data-view="marine"><svg viewBox="0 0 24 24"><path d="M2 9c2.5-3 5-3 7.5 0s5 3 7.5 0c1.7-2 3.3-2.4 5-1"/><path d="M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0c1.7-2 3.3-2.4 5-1"/></svg><span>Ocean</span></button>
+  <button data-view="briefing"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9.5 10h6M9.5 13.5h6M9.5 17h3.5"/></svg><span>Discussions</span></button>
+  <button data-view="fun"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg><span>Extremes</span></button>
+  <div class="spacer"></div>
+  <button data-view="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.4v.2"/></svg><span>Sources</span></button>
+</nav>
+
+<main>
+  <!-- MAP -->
+  <section id="v-map" class="view on">
+    <div id="map"></div>
+    <aside id="layers" class="panel">
+      <h3>Radar</h3>
+      <select id="radarSel"></select>
+      <div class="row" id="siteRow"><label>Site</label><select id="siteSel"></select></div>
+      <div class="row hidden" id="recWinRow"><label>Showing</label><select id="recWin"></select></div>
+      <div class="row"><label>Opacity</label><input id="radarOp" type="range" min="0" max="100" value="80"></div>
+      <div id="recBox"><div class="row"><label>Record</label><select id="recDays"><option value="0">Off</option><option value="1">Keep 1 day</option><option value="3">Keep 3 days</option><option value="7">Keep 1 week</option><option value="14">Keep 2 weeks</option><option value="30">Keep 1 month</option></select></div><div class="row" style="justify-content:space-between"><span id="recInfo" class="dim small"></span><button id="recClear" class="btn ghost hidden" style="padding:3px 9px;font-size:12px">Delete</button></div></div>
+      <h3>Satellite</h3>
+      <select id="satSel"></select>
+      <div class="row"><label>Opacity</label><input id="satOp" type="range" min="0" max="100" value="85"></div>
+      <h3>Model map</h3>
+      <div class="row"><select id="mfModel"></select></div>
+      <div class="row"><select id="mfVar"></select></div>
+      <div class="row"><button id="mfLoad" class="btn">Load for this view</button><button id="mfOff" class="btn ghost">Off</button></div>
+      <div id="mfCtl" class="hidden">
+        <input id="mfHour" type="range" min="0" max="71" value="0">
+        <div id="mfLabel" class="dim small"></div>
+      </div>
+      <h3>Overlays</h3>
+      <label class="chk"><input type="checkbox" id="ovAlerts" checked> Warnings &amp; advisories</label>
+      <label class="chk"><input type="checkbox" id="ovMetar"> Station observations</label>
+      <label class="chk"><input type="checkbox" id="ovSites"> Radar sites (click to pick)</label>
+      <label class="chk"><input type="checkbox" id="ovTrop" checked> Tropical systems</label>
+      <div class="row"><label>Storm outlook</label><select id="spcSel"></select></div>
+      <h3>Base map</h3>
+      <select id="baseSel"></select>
+    </aside>
+    <div id="timeline" class="panel">
+      <button id="tlPlay" class="btn round">▶</button>
+      <input id="tlSlider" type="range" min="0" max="0" value="0">
+      <div id="tlTime">—</div>
+      <select id="tlSpeed" title="Loop speed"><option value="700">Slow</option><option value="400" selected>Normal</option><option value="200">Fast</option></select>
+    </div>
+    <div id="legend" class="panel hidden"></div>
+    <div id="readout" class="panel hidden"></div>
+  </section>
+
+  <section id="v-forecast" class="view scroll"></section>
+  <section id="v-models" class="view scroll"></section>
+  <section id="v-sounding" class="view scroll"></section>
+  <section id="v-alerts" class="view"></section>
+  <section id="v-briefing" class="view scroll"></section>
+  <section id="v-marine" class="view scroll"></section>
+  <section id="v-lookup" class="view scroll"></section>
+  <section id="v-history" class="view scroll"></section>
+  <section id="v-fire" class="view scroll"></section>
+  <section id="v-nature" class="view scroll"></section>
+  <section id="v-drive" class="view scroll"></section>
+  <section id="v-tides" class="view scroll"></section>
+  <section id="v-fun" class="view scroll"></section>
+  <section id="v-about" class="view scroll"></section>
+</main>
+
+<div id="welcome" class="modal hidden">
+  <div class="card">
+    <img src="icon.png" alt="">
+    <h1>Welcome to Skywatch</h1>
+    <p>Where should the forecast start? Type a town, city or zip code.</p>
+    <input id="welSearch" type="text" placeholder="e.g. Santa Rosa" autocomplete="off" spellcheck="false">
+    <div id="welResults" class="menu inline"></div>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="js/core.js"></script>
+<script src="js/map.js"></script>
+<script src="js/forecast.js"></script>
+<script src="js/models.js"></script>
+<script src="js/sounding.js"></script>
+<script src="js/alerts.js"></script>
+<script src="js/briefing.js"></script>
+<script src="js/marine.js"></script>
+<script src="js/astro.js"></script>
+<script src="data/cloudphotos.js"></script>
+<script src="js/clouds.js"></script>
+<script src="js/lookup.js"></script>
+<script src="js/history.js"></script>
+<script src="js/fire.js"></script>
+<script src="js/nature.js"></script>
+<script src="js/drive.js"></script>
+<script src="js/tides.js"></script>
+<script src="js/fun.js"></script>
+<script src="js/app.js"></script>
+<script src="js/explain.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 // Skywatch forecast: current conditions, 10 days, hourly charts, NWS text, air quality.
 (function forecastMod() {
   const { $, api, U, n, esc } = SW;
-  let span = 72, data = null;
+  let span = 24, data = null;
 
   function moon(ts) {
     const p = (((ts - 947182440) / 2551442.8) % 1 + 1) % 1; // since new moon 2000-01-06 18:14 UTC
@@ -12,10 +12,9 @@
 
   async function load() {
     const root = $('#v-forecast'), loc = SW.loc(); if (!loc) return;
-    root.innerHTML = '<div class="head"><h1>' + esc(loc.name) + '</h1><span class="dim">' + esc(loc.region || '') + '</span><div class="spacer"></div><div class="seg" id="fcSpan"><button data-h="48">2 days</button><button data-h="72" >3 days</button><button data-h="168">7 days</button><button data-h="240">10 days</button></div></div>' +
+    root.innerHTML = '<div class="head"><h1>' + esc(loc.name) + '</h1><span class="dim">' + esc(loc.region || '') + '</span></div>' +
       '<div class="grid" id="fcBody"></div>';
     const body = $('#fcBody', root); SW.loading(body, 'Getting the forecast…');
-    SW.$$('#fcSpan button', root).forEach(b => { b.classList.toggle('on', +b.dataset.h === span); b.onclick = () => { span = +b.dataset.h; SW.$$('#fcSpan button', root).forEach(x => x.classList.toggle('on', x === b)); charts(); }; });
     try {
       data = await api.json(SW.omUrl('https://api.open-meteo.com/v1/forecast', loc,
         '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,dew_point_2m,visibility,is_day,uv_index' +
@@ -43,15 +42,18 @@
       '<div class="card"><h2>Pressure &amp; cloud</h2><div class="chart" id="chC"></div></div>' +
       '</div>' +
       '<div class="card"><h2>National Weather Service forecast</h2><div id="fcNws"><div class="state"><span class="spin"></span>Loading…</div></div></div>';
-    charts(); nws(loc); aqi(loc);
+    spanButtons(); charts(); nws(loc); aqi(loc);
   }
-  function next24() { // the standout hours of the coming day
-    const h = data.hourly, tz = data.timezone, now = Date.now() / 1000; let a = h.time.findIndex(t => t >= now - 1800); if (a < 0) a = 0; const b = Math.min(h.time.length, a + 24);
+  function spanButtons() { // 1 / 2 / 3 / 7 / 10 days: changes the standout-hours card and the hour-by-hour charts
+    SW.$$('#fcSpan button').forEach(function pickSpan(b) { b.classList.toggle('on', +b.dataset.h === span); b.onclick = () => { span = +b.dataset.h; $('#fc24').outerHTML = next24(); spanButtons(); charts(); }; });
+  }
+  function next24() { // the standout hours of the chosen stretch (1 to 10 days)
+    const h = data.hourly, tz = data.timezone, now = Date.now() / 1000; let a = h.time.findIndex(t => t >= now - 1800); if (a < 0) a = 0; const b = Math.min(h.time.length, a + span);
     const pick = (k, dir) => { let m = a; for (let i = a; i < b; i++) if (h[k][i] != null && dir * (h[k][i] - h[k][m]) > 0) m = i; return m; };
-    const day = t => SW.fmt(t, tz, 'day') === SW.fmt(now, tz, 'day') ? '' : ' ' + SW.fmt(t, tz, 'day'), at = i => SW.fmt(h.time[i], tz, 'hour') + day(h.time[i]);
+    const day = t => SW.fmt(t, tz, 'day') === SW.fmt(now, tz, 'day') ? '' : ' ' + SW.fmt(t + 0, tz, span >= 168 ? 'date' : 'day'), at = i => SW.fmt(h.time[i], tz, 'hour') + day(h.time[i]);
     const w = pick('temperature_2m', 1), c = pick('temperature_2m', -1), g = pick('wind_gusts_10m', 1), p = pick('precipitation_probability', 1), dry = h.precipitation_probability[p] < 25;
     const r = pick('precipitation', 1), rains = h.precipitation[r] > 0, hu = pick('relative_humidity_2m', 1), hd = pick('relative_humidity_2m', -1);
-    return '<div class="card" id="fc24"><h2>The next 24 hours</h2><div class="kv" style="grid-template-columns:repeat(3,auto)">' +
+    return '<div class="card" id="fc24"><h2>' + (span === 24 ? 'The next 24 hours' : 'The next ' + span / 24 + ' days') + '<span class="spacer"></span><span class="seg" id="fcSpan" style="text-transform:none;letter-spacing:0">' + [24, 48, 72, 168, 240].map(v => '<button data-h="' + v + '">' + (v / 24) + (v === 24 ? ' day' : ' days') + '</button>').join('') + '</span></h2><div class="dim small" style="margin:-4px 0 8px">These buttons also set how far ahead the charts below reach.</div><div class="kv" style="grid-template-columns:repeat(3,auto)">' +
       '<div><span>Warmest hour</span><b>' + at(w) + ' · ' + n(h.temperature_2m[w]) + '°</b></div><div><span>Coldest hour</span><b>' + at(c) + ' · ' + n(h.temperature_2m[c]) + '°</b></div>' +
       '<div><span>Wettest hour</span><b>' + (rains ? at(r) + ' · ' + n(h.precipitation[r], U.us() ? 2 : 1) + ' ' + U.p() + ' of rain' : at(hu) + ' · ' + n(h.relative_humidity_2m[hu]) + '% humidity') + '</b></div><div><span>Driest hour</span><b>' + at(hd) + ' · ' + n(h.relative_humidity_2m[hd]) + '% humidity</b></div>' +
       '<div><span>Windiest hour</span><b>' + at(g) + ' · gusts ' + n(h.wind_gusts_10m[g]) + ' ' + U.w() + '</b></div><div><span>Best chance of rain</span><b>' + (dry ? 'Staying dry' : at(p) + ' · ' + n(h.precipitation_probability[p]) + '%') + '</b></div></div></div>';

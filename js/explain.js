@@ -304,7 +304,7 @@
     ['.hero .ico', 'A picture of the weather right now.'],
     ['.hero .big', 'The temperature right now, from the latest computer analysis for your exact spot.'],
     ['#fcObs', 'An actual thermometer reading from the nearest official weather station, and when it was taken.'],
-    ['#fcSpan', 'How far ahead the charts below should look.'],
+    ['#fcSpan', 'How far ahead to look: changes this card (the warmest, coldest, wettest and windiest hours) and the hour-by-hour charts below.'],
     ['.day', 'One day: the weather picture, the high (bold) and the low, then the chance of rain and how much is expected.'],
     ['.period', 'The official wording for this part of the day from your local Weather Service office.'],
     ['#mdDays', 'How many days ahead to compare. Short-range models stop after two or three days.'],

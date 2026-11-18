@@ -276,3 +276,4 @@ body.explain select,body.explain button,body.explain .kv>div,body.explain .idx>d
 .menu{z-index:3000}
 #drBar{position:relative;z-index:30}
 #top{z-index:4000}
+.cal-d .est{opacity:.6;font-weight:400;margin-right:1px}

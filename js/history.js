@@ -31,7 +31,7 @@
       if (a <= today) { const end = b < today ? b : today; put(await api.json('https://archive-api.open-meteo.com/v1/archive?' + q + '&start_date=' + a + '&end_date=' + end, b < today ? 86400 : 3600), 'actual'); }
       fc.daily.time.forEach((d, i) => { if (!days[d] || d >= today) { const keep = days[d]; delete days[d]; put({ daily: { time: [d], weather_code: [fc.daily.weather_code[i]], temperature_2m_max: [fc.daily.temperature_2m_max[i]], temperature_2m_min: [fc.daily.temperature_2m_min[i]], precipitation_sum: [fc.daily.precipitation_sum[i]], wind_gusts_10m_max: [fc.daily.wind_gusts_10m_max[i]] } }, 'recent'); if (!days[d] && keep) days[d] = keep; } });
       if (g !== gen) return;
-      await station(loc, g);
+      await Promise.all([station(loc, g), gauge(loc, g)]);
     } catch (e) { SW.fail(cal, e, () => month(loc)); return; }
     if (g !== gen) return;
     render(loc);
@@ -56,7 +56,40 @@
       (j.data || []).forEach(function meas(r) { const d = days[r.date]; if (d && d.kind !== 'forecast' && d.kind !== 'today' && r.max_tmpf != null && r.min_tmpf != null) d.m = { hi: dT(r.max_tmpf), lo: dT(r.min_tmpf), pr: r.precip == null ? null : dP(Math.max(0, r.precip)) }; });
     } catch (e) { /* outside the US, or the archive is quiet: the calendar still works */ }
   }
-  const best = d => d.m ? { hi: d.m.hi, lo: d.m.lo, pr: d.m.pr == null ? d.pr : d.m.pr } : d;
+
+  // Real rain: the nearest rain gauge (volunteer CoCoRaHS and co-op gauges, through the ACIS archive). Model rain for past
+  // days invents light rain on dry days, so a measured amount always wins. A morning reading covers the 24 hours before it,
+  // so a 7 AM reading belongs to the day before.
+  let gStn = null;
+  async function gauge(loc, g) {
+    gStn = null;
+    try {
+      const add = (s, k) => { const t = new Date(s + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + k); return t.toISOString().slice(0, 10); };
+      const last = new Date(Y, M + 1, 0).getDate(), a = iso(Y, M, 1), b = iso(Y, M, last), today = todayIso(), e = add(b, 1) < today ? add(b, 1) : today;
+      if (a > today) return;
+      const j = await api.json('https://data.rcc-acis.org/MultiStnData?params=' + encodeURIComponent(JSON.stringify({ bbox: [loc.lon - 0.25, loc.lat - 0.2, loc.lon + 0.25, loc.lat + 0.2].map(v => v.toFixed(3)).join(','), sdate: a, edate: e, elems: [{ name: 'pcpn', add: 't' }], meta: 'name,ll' })), b < today ? 86400 : 1800);
+      if (g !== gen) return;
+      const km = ll => { const r = Math.PI / 180, q = Math.sin((ll[1] - loc.lat) * r / 2) ** 2 + Math.cos(loc.lat * r) * Math.cos(ll[1] * r) * Math.sin((ll[0] - loc.lon) * r / 2) ** 2; return 12742 * Math.asin(Math.sqrt(q)); };
+      const cands = (j.data || []).map(s => ({ s, km: km(s.meta.ll), got: s.data.filter(v => v[0][0] !== 'M').length })).filter(c => c.km <= 20 && c.got >= s0(j) * 0.6).sort((p, q) => p.km - q.km);
+      if (!cands.length) return;
+      const c = cands[0], dts = []; for (let k = 0; k < c.s.data.length; k++) dts.push(add(a, k));
+      gStn = { name: c.s.meta.name.replace(/\b\w+/g, w => /^[NSEW]{1,3}$/.test(w) ? w : w[0] + w.slice(1).toLowerCase()), mi: c.km / 1.609, km: c.km };
+      c.s.data.forEach(function reading(v, k) {
+        const raw = v[0][0], hr = +v[0][1]; if (raw === 'M' || raw == null || /A$/.test(raw)) return;
+        const amt = raw === 'T' ? 0 : parseFloat(raw); if (!isFinite(amt)) return;
+        const day = hr && hr < 12 ? add(dts[k], -1) : dts[k], d = days[day]; if (!d || d.kind === 'forecast') return;
+        d.g = { pr: dP(amt), raw: amt, hr, trace: raw === 'T', read: dts[k] };
+      });
+    } catch (e) { /* no gauge nearby or the archive is quiet: model rain stays */ }
+  }
+  const s0 = j => ((j.data || [])[0] || { data: [] }).data.length;
+  const RAINY = c => (c >= 51 && c <= 67) || (c >= 80 && c <= 82);
+  function best(d) {
+    const v = d.m ? { hi: d.m.hi, lo: d.m.lo, pr: d.m.pr == null ? d.pr : d.m.pr, code: d.code } : { hi: d.hi, lo: d.lo, pr: d.pr, code: d.code };
+    // with a gauge, the day's word follows the measured amount, not the model's
+    if (d.g) { v.pr = d.g.pr; const r = d.g.raw; if (r < 0.01) { if (RAINY(v.code)) v.code = 3; } else if (v.code < 71 || v.code > 77) v.code = r < 0.1 ? 61 : r < 1 ? 63 : 65; }
+    return v;
+  }
 
   function render(loc) {
     const first = new Date(Y, M, 1).getDay(), last = new Date(Y, M + 1, 0).getDate(), today = todayIso();
@@ -65,17 +98,22 @@
     for (let d = 1; d <= last; d++) {
       const k = iso(Y, M, d), x = days[k];
       if (!x) { h += '<div class="cal-d empty"><i>' + d + '</i></div>'; continue; }
-      const v = best(x), w = SW.wx(x.code);
-      h += '<div class="cal-d ' + x.kind + (k === today ? ' now' : '') + (k === sel ? ' on' : '') + '" data-d="' + k + '" title="' + w.text + '"><i>' + d + '</i><em>' + w.icon + '</em><b>' + n(v.hi) + '°</b><span>' + n(v.lo) + '°</span><u>' + (v.pr > (U.us() ? 0.005 : 0.1) ? n(v.pr, pd()) + ' ' + U.p() : (x.kind === 'forecast' ? 'forecast' : '&nbsp;')) + '</u></div>';
+      const v = best(x), w = SW.wx(v.code), past = x.kind !== 'forecast', estT = past && !x.m, estR = past && !x.g, ap = '<span class="est">≈</span>';
+      h += '<div class="cal-d ' + x.kind + (k === today ? ' now' : '') + (k === sel ? ' on' : '') + '" data-d="' + k + '" title="' + w.text + (past ? ' · temperatures ' + (estT ? 'estimated' : 'measured') + ', rain ' + (estR ? 'estimated' : 'measured') : '') + '"><i>' + d + '</i><em>' + w.icon + '</em><b>' + (estT ? ap : '') + n(v.hi) + '°</b><span>' + n(v.lo) + '°</span><u>' + (v.pr > (U.us() ? 0.005 : 0.1) ? (estR ? ap : '') + n(v.pr, pd()) + ' ' + U.p() : (x.kind === 'forecast' ? 'forecast' : '&nbsp;')) + '</u></div>';
     }
-    $('#hiCal').innerHTML = h + '</div><div class="dim small" style="margin-top:10px">' + (stn ? 'Past days show the thermometer and rain gauge at ' + esc(stn.name) + ' where it has a record.' : 'Past days come from the worldwide weather record, which rebuilds each day from every available measurement.') + ' Faded days have not happened yet and show the forecast.</div>';
+    const dist = s => U.us() ? n(s.km / 1.609) + ' mi' : n(s.km) + ' km';
+    $('#hiCal').innerHTML = h + '</div><div class="dim small" style="margin-top:10px;line-height:1.5">' +
+      (gStn ? 'Rain is measured by the ' + esc(gStn.name) + ' rain gauge (' + dist(gStn) + ' away), read each morning; each reading is put on the day the rain fell. ' : 'There is no rain gauge close by, so rain marked ≈ is an estimate. ') +
+      (stn ? 'Highs and lows are measured at ' + esc(stn.name) + '. ' : 'There is no thermometer close by, so highs and lows marked ≈ are an estimate for your exact spot from a weather reconstruction, not a measurement. ') +
+      'Faded days have not happened yet and show the forecast.</div>';
     $$('.cal-d[data-d]').forEach(e => e.onclick = () => { sel = e.dataset.d; $$('.cal-d').forEach(x => x.classList.toggle('on', x === e)); day(loc, sel); });
-    const act = Object.keys(days).filter(k => days[k].kind !== 'forecast').map(k => Object.assign({ k }, best(days[k]))), box = $('#hiMonth');
+    const act = Object.keys(days).filter(k => days[k].kind !== 'forecast').map(k => Object.assign({ k, eT: !days[k].m, eR: !days[k].g }, best(days[k]))), box = $('#hiMonth');
     if (!act.length) { box.innerHTML = '<div><span>This month has not started yet.</span><b></b></div>'; return; }
     const avg = f => act.reduce((s, d) => s + f(d), 0) / act.length, top = (f, dir) => act.slice().sort((p, q) => dir * (f(q) - f(p)))[0], dl = k => MON[M].slice(0, 3) + ' ' + (+k.slice(8));
     const hot = top(d => d.hi, 1), cold = top(d => d.lo, -1), wet = top(d => d.pr || 0, 1), rainy = act.filter(d => (d.pr || 0) > (U.us() ? 0.005 : 0.1)).length;
-    box.innerHTML = '<div><span>Average high / low</span><b>' + n(avg(d => d.hi)) + '° / ' + n(avg(d => d.lo)) + '°</b></div><div><span>Total rain</span><b>' + n(act.reduce((s, d) => s + (d.pr || 0), 0), pd()) + ' ' + U.p() + ' over ' + rainy + ' day' + (rainy === 1 ? '' : 's') + '</b></div>' +
-      '<div><span>Warmest day</span><b>' + dl(hot.k) + ' · ' + n(hot.hi) + '°</b></div><div><span>Coldest night</span><b>' + dl(cold.k) + ' · ' + n(cold.lo) + '°</b></div>' + (wet.pr > 0 ? '<div><span>Wettest day</span><b>' + dl(wet.k) + ' · ' + n(wet.pr, pd()) + ' ' + U.p() + '</b></div>' : '') + '<div><span>Days counted</span><b>' + act.length + '</b></div>';
+    const aT = act.some(d => d.eT) ? '≈' : '', aR = act.some(d => d.eR) ? '≈' : ''; // any estimate in the mix is marked
+    box.innerHTML = '<div><span>Average high / low</span><b>' + aT + n(avg(d => d.hi)) + '° / ' + n(avg(d => d.lo)) + '°</b></div><div><span>Total rain</span><b>' + aR + n(act.reduce((s, d) => s + (d.pr || 0), 0), pd()) + ' ' + U.p() + ' over ' + rainy + ' day' + (rainy === 1 ? '' : 's') + '</b></div>' +
+      '<div><span>Warmest day</span><b>' + dl(hot.k) + ' · ' + (hot.eT ? '≈' : '') + n(hot.hi) + '°</b></div><div><span>Coldest night</span><b>' + dl(cold.k) + ' · ' + (cold.eT ? '≈' : '') + n(cold.lo) + '°</b></div>' + (wet.pr > 0 ? '<div><span>Wettest day</span><b>' + dl(wet.k) + ' · ' + (wet.eR ? '≈' : '') + n(wet.pr, pd()) + ' ' + U.p() + '</b></div>' : '') + '<div><span>Days counted</span><b>' + act.length + '</b></div>';
   }
 
   let dayGen = 0;
@@ -95,9 +133,12 @@
     if (!h || !h.temperature_2m.some(v => v != null)) { box.innerHTML = '<div class="card"><h2>' + title + '</h2><div class="state">The hour-by-hour record for this day is not available.</div></div>'; return; }
     const tz = j.timezone, T = h.temperature_2m, ext = (arr, dir) => { let b = -1; arr.forEach((v, i) => { if (v != null && (b < 0 || dir * (v - arr[b]) > 0)) b = i; }); return b; };
     const iH = ext(T, 1), iL = ext(T, -1), iG = ext(h.wind_gusts_10m || [], 1), sum = arr => arr.reduce((s, v) => s + (v || 0), 0), rain = sum(h.precipitation), wet = U.us() ? 0.01 : 0.2;
-    const v = best(x), w = SW.wx(x.code);
-    const story = (fut ? 'This day has not happened yet. The forecast is ' : x.kind === 'today' ? 'Today is still under way. So far and for the rest of the day: ' : 'It was ') + w.text.toLowerCase() + '. ' + (soft ? 'Expect a high near ' : 'The high was ') + '<b>' + n(v.hi) + '°</b> around ' + SW.fmt(h.time[iH], tz, 'hour') + ' and ' + (soft ? 'a low near ' : 'the low was ') + '<b>' + n(v.lo) + '°</b> around ' + SW.fmt(h.time[iL], tz, 'hour') + '. ' +
-      ((v.pr || 0) > wet / 2 ? '<b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain' + (soft ? ' is expected.' : ' fell.') : (soft ? 'No rain is expected.' : 'No rain fell.')) + (iG >= 0 ? ' The strongest gust ' + (soft ? 'should be' : 'was') + ' about ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + '.' : '');
+    const v = best(x), w = SW.wx(v.code), estT = !soft && !x.m;
+    const rainTxt = soft ? ((v.pr || 0) > wet / 2 ? '<b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain is expected.' : 'No rain is expected.')
+      : x.g ? (x.g.raw >= 0.01 ? 'The ' + esc(gStn.name) + ' rain gauge caught <b>' + n(x.g.pr, pd()) + ' ' + U.p() + '</b> (from ' + (x.g.hr ? (x.g.hr % 12 || 12) + (x.g.hr < 12 ? ' AM' : ' PM') : 'its morning reading') + ' this day to the same time the next).' : 'The ' + esc(gStn.name) + ' rain gauge measured ' + (x.g.trace ? 'only a trace of rain' : 'no rain') + '.')
+      : ((v.pr || 0) > wet / 2 ? 'There is no rain gauge close by; the estimate is about <b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain.' : 'There is no rain gauge close by; the estimate is no rain.');
+    const story = (fut ? 'This day has not happened yet. The forecast is ' : x.kind === 'today' ? 'Today is still under way. So far and for the rest of the day: ' : 'It was ') + w.text.toLowerCase() + '. ' + (soft ? 'Expect a high near ' : estT ? 'The high was about ' : 'The high was ') + '<b>' + n(v.hi) + '°</b> around ' + SW.fmt(h.time[iH], tz, 'hour') + ' and ' + (soft ? 'a low near ' : estT ? 'the low about ' : 'the low was ') + '<b>' + n(v.lo) + '°</b> around ' + SW.fmt(h.time[iL], tz, 'hour') + (estT ? ' (estimates: no thermometer close by)' : '') + '. ' +
+      rainTxt + (iG >= 0 ? ' The strongest gust ' + (soft ? 'should be' : 'was') + ' about ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + (soft ? '' : ' (estimate)') + '.' : '');
 
     // how the forecast did, 1 to 7 days ahead
     let rows = '', score = [];
@@ -116,7 +157,7 @@
     const meas = x.m ? '<div class="dim small" style="margin-top:8px">Measured at ' + esc(stn.name) + ': high ' + n(x.m.hi) + '°, low ' + n(x.m.lo) + '°' + (x.m.pr != null ? ', rain ' + n(x.m.pr, pd()) + ' ' + U.p() : '') + '. The chart below is for your exact spot, so it can differ by a degree or two.</div>' : '';
     box.innerHTML = '<div class="card" id="hiStory"><h2>' + title + '</h2><div class="hero" style="gap:18px;flex-wrap:nowrap"><div class="ico">' + w.icon + '</div><div style="font-size:15px;line-height:1.55">' + story + meas + '</div></div>' +
       '<div class="idx" style="margin-top:12px"><div><span>Warmest hour</span><b>' + SW.fmt(h.time[iH], tz, 'hour') + ' · ' + n(T[iH]) + '°</b></div><div><span>Coldest hour</span><b>' + SW.fmt(h.time[iL], tz, 'hour') + ' · ' + n(T[iL]) + '°</b></div>' + moist(h, tz) + '</div></div>' +
-      '<div class="card" id="hiHourCard"><h2>Hour by hour</h2><div class="chart" id="hiChart"></div></div>' +
+      '<div class="card" id="hiHourCard"><h2>Hour by hour' + (soft ? '' : ' <span class="dim small" style="text-transform:none;letter-spacing:0">estimated for your exact spot</span>') + '</h2><div class="chart" id="hiChart"></div></div>' +
       '<div class="card" id="hiAccCard"><h2>' + (fut ? 'How the forecast has changed' : 'How good was the forecast?') + '</h2>' + accuracy + '</div>';
     const series = [{ label: fut ? 'Latest forecast' : 'What happened', color: '#ffffff', width: 3 }], data = [h.time, T];
     [[1, '#3ddc97'], [3, '#ffd24a'], [7, '#ff5a8a']].forEach(function ln(p) { const ft = h['temperature_2m_previous_day' + p[0]]; if (ft && ft.some(q => q != null)) { series.push({ label: 'Forecast ' + p[0] + ' day' + (p[0] > 1 ? 's' : '') + ' before', color: p[1], width: 1.5, dash: [5, 4] }); data.push(ft); } });

@@ -53,8 +53,8 @@
     const body = $('#naBody'); SW.loading(body, 'Sniffing the air…');
     try {
       const [wx, aq] = await Promise.all([
-        api.json(SW.omUrl('https://api.open-meteo.com/v1/forecast', loc, '&hourly=temperature_2m,relative_humidity_2m,precipitation,weather_code,cloud_cover,visibility,wind_speed_10m,wind_gusts_10m,uv_index,uv_index_clear_sky,is_day&daily=uv_index_max,sunrise,sunset,temperature_2m_min,temperature_2m_max&past_days=3&forecast_days=5&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch'), 1200),
-        api.json(SW.omUrl('https://air-quality-api.open-meteo.com/v1/air-quality', loc, '&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide,dust&hourly=us_aqi,pm2_5,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen&forecast_days=3'), 1800).catch(() => null)
+        api.json(SW.omUrl('https://api.open-meteo.com/v1/forecast', loc, '&hourly=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation,weather_code,cloud_cover,visibility,wind_speed_10m,wind_gusts_10m,uv_index,uv_index_clear_sky,is_day&daily=uv_index_max,sunrise,sunset,temperature_2m_min,temperature_2m_max&past_days=3&forecast_days=5&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch'), 1200),
+        api.json(SW.omUrl('https://air-quality-api.open-meteo.com/v1/air-quality', loc, '&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide,dust&hourly=us_aqi,pm2_5,pm10,dust,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen&forecast_days=3'), 1800).catch(() => null)
       ]);
       if (g !== gen) return;
       D = { loc, wx, aq, life: null };
@@ -156,7 +156,7 @@
     const row = (name, v, sub) => { const l = lvl(v); return '<div class="na-row"><span>' + name + '</span><div class="na-bar"><i style="width:' + Math.max(4, Math.min(100, v * 11)) + '%;background:' + LC[l] + '"></i></div><b style="color:' + LC[l] + '">' + LV[l] + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + '</div>'; };
     const ty = t => { const l = p.act.filter(a => a.type === t); return row(TYPES[t], Math.min(10, p.base[t] * p.f0 * 1.45), l.length ? l.map(a => a.k).join(', ') : 'Nothing in season'); };
     html += '<div class="grid g2"><div class="card" id="naTypes"><h2>What is in the air right now</h2>' + (p.real ? row('Pollen', pNow, 'From the forecast model') : ty('tree') + ty('grass') + ty('weed')) +
-      row('Mold spores', p.mold[0], w.wet ? 'Mold loves the damp after rain. Worst around ' + tm(p.xs[p.mpk]) + '.' : 'Dry weather keeps mold quiet.') + parts(c) + '</div>' +
+      row('Mold spores', p.mold[0], w.wet ? 'Mold loves the damp after rain. Worst around ' + tm(p.xs[p.mpk]) + '.' : 'Dry weather keeps mold quiet.') + dustRows(row, tm) + parts(c) + '</div>' +
       '<div class="card" id="naWhen"><h2>When it will be worst</h2><div class="chart" id="naChart" style="height:250px"></div><p class="dim small" style="line-height:1.5;margin:8px 0 0">Pollen is usually highest from sunrise to mid-morning, when flowers open and the air starts to stir, and lowest during and just after rain. Mold is the opposite: it peaks in damp, mild weather. ' + (ml >= 3 ? 'Mold is high today, so raking leaves or mowing will stir it up.' : '') + '</p></div></div>';
 
     // plants to look out for
@@ -181,6 +181,26 @@
     SW.chart($('#naChart'), { tz: D.wx.timezone, unit: 'level (0 to 10)', yRange: [0, 10], data: [p.xs, p.ys, p.mold], series: [{ label: 'Pollen', color: '#ffd24a', fill: '#ffd24a22', width: 2.5, dec: 1 }, { label: 'Mold spores', color: '#c9a7ff', width: 1.5, dec: 1 }] });
     const ux = today.map(i => h.time[i]);
     SW.chart($('#naUVChart'), { tz: D.wx.timezone, unit: 'UV index', data: [ux, today.map(i => h.uv_index[i]), today.map(i => h.uv_index_clear_sky[i])], series: [{ label: 'UV', color: '#ff8a4a', fill: '#ff8a4a22', width: 2.5, dec: 1 }, { label: 'If the sky were clear', color: '#8b9ab3', width: 1.2, dash: [5, 4], dec: 1 }] });
+  }
+  // Dust outdoors comes from the air-quality forecast (a model, not a sensor). Dust mites and pet dander live indoors and
+  // nobody measures them; these rows say how today's weather sets up a home for them, and are labeled as estimates.
+  function dustRows(row, tm) {
+    const aq = D.aq, h = D.wx.hourly, now = Date.now() / 1000; let out = '';
+    if (aq && aq.hourly && aq.hourly.pm10) {
+      const A = aq.hourly; let i0 = A.time.findIndex(t => t >= now - 1800); if (i0 < 0) i0 = 0; let pk = i0;
+      for (let i = i0; i < Math.min(A.time.length, i0 + 24); i++) if (A.pm10[i] != null && A.pm10[i] > (A.pm10[pk] || 0)) pk = i;
+      const v = A.pm10[i0], desert = A.dust && A.dust[i0];
+      if (v != null) out += row('Dust (outdoors)', Math.min(10, v / 15), n(v) + ' µg/m³ of coarse dust and sea salt' + (desert > 20 ? ', some of it desert dust blown in from far away' : '') + '. ' + (A.pm10[pk] > v * 1.3 ? 'Worst around ' + tm(A.time[pk]) + '. ' : '') + 'From the air-quality forecast, a model, not a sensor.');
+    }
+    // indoor humidity: on heating days the house warms outdoor air to about 68°F, which dries it; otherwise it follows outside
+    let i0 = h.time.findIndex(t => t >= now - 1800); if (i0 < 0) i0 = 0; const day = []; for (let i = i0; i < Math.min(h.time.length, i0 + 24); i++) day.push(i);
+    const avg = k => day.reduce((s, i) => s + (h[k][i] || 0), 0) / Math.max(1, day.length), tOut = avg('temperature_2m'), td = (avg('dew_point_2m') - 32) * 5 / 9, heat = tOut < 60;
+    const es = c => Math.exp(17.625 * c / (243.04 + c)), rhIn = heat ? Math.min(100, 100 * es(td) / es(20)) : avg('relative_humidity_2m');
+    const mites = rhIn >= 65 ? 8 : rhIn >= 55 ? 6 : rhIn >= 45 ? 4 : 2;
+    const dander = Math.min(10, 1 + (tOut < 45 ? 4 : tOut < 55 ? 3 : tOut < 62 ? 1.5 : 0) + (rhIn < 30 ? 2 : rhIn < 40 ? 1 : 0));
+    out += row('Dust mites (indoors)', mites, 'Indoor air is likely around ' + n(rhIn) + '% humidity today' + (heat ? ' with the heat on' : '') + '. ' + (rhIn >= 55 ? 'Mites thrive above about 55%: wash bedding hot and run a dehumidifier or the bathroom fan.' : 'Mites dry out below about 50%, so this is a quiet day for them.') + ' Estimate; nothing measures this.');
+    out += row('Pet dander (indoors)', dander, (tOut < 55 ? 'A cool day: windows shut and the heater on keep dander circulating inside. ' : 'Mild enough to air the house out, which clears dander. ') + (rhIn < 35 ? 'Dry indoor air lets it float longer and makes it cling to fabric.' : '') + ' Estimate; nothing measures this.');
+    return out;
   }
   function parts(c) { // the other things floating in the air
     if (!c) return '<p class="dim small">Air quality readings are not available right now.</p>';

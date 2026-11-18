@@ -304,6 +304,7 @@
     ['.hero .ico', 'A picture of the weather right now.'],
     ['.hero .big', 'The temperature right now, from the latest computer analysis for your exact spot.'],
     ['#fcObs', 'An actual thermometer reading from the nearest official weather station, and when it was taken.'],
+    ['#naTypes .na-row', 'How much of this is in the air now. Pollen, mold, dust mites and pet dander rows are Skywatch estimates from the weather and local plants; dust comes from the air-quality forecast. Each row says which.'],
     ['#fcRec', 'What is normal for today, and the hottest and coldest this date has ever been, from the nearest long-running official weather station.'],
     ['#hiRecCard', 'Record highs, lows and rain for the day you picked, its month and all time. They come from real thermometer and rain gauge readings at the nearest long-running official station, checked for gaps and typos. Where there is no station close by, they are marked as a rough estimate.'],
     ['#hiRec .rec td', 'A record and the year it was set.'],

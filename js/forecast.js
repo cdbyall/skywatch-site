@@ -85,8 +85,9 @@
       const f = await api.json(p.forecast + (U.us() ? '' : '?units=si'), 900);
       box.innerHTML = '<div class="periods">' + f.properties.periods.slice(0, 14).map(q => '<div class="period"><b>' + esc(q.name) + '<div class="dim small" style="font-weight:400">' + q.temperature + '°' + q.temperatureUnit + (q.probabilityOfPrecipitation && q.probabilityOfPrecipitation.value ? ' · 💧' + q.probabilityOfPrecipitation.value + '%' : '') + '</div></b><div>' + esc(q.detailedForecast) + '</div></div>').join('') + '</div>';
       // nearest real observation
-      const s = await api.json(p.observationStations, 86400);
-      const stn = s.features[0];
+      // only a station that reads like this place (close, same height): the one the diary picked
+      const dd = SW.diary ? await SW.diary.update(loc).catch(() => SW.diary.read(loc)) : null, ds = dd && dd.stn;
+      const stn = ds ? { id: 'https://api.weather.gov/stations/' + ds.id, properties: { name: ds.name }, geometry: null } : null;
       if (stn) {
         const o = (await api.json(stn.id + '/observations/latest', 300)).properties;
         if (o && o.temperature && o.temperature.value != null && $('#fcObs')) $('#fcObs').innerHTML = 'Measured at ' + esc(stn.properties.name) + (function away(c) { if (!c) return ''; const r = Math.PI / 180, a = Math.sin((c[1] - loc.lat) * r / 2) ** 2 + Math.cos(loc.lat * r) * Math.cos(c[1] * r) * Math.sin((c[0] - loc.lon) * r / 2) ** 2, km = 12742 * Math.asin(Math.sqrt(a)); return km < 8 ? '' : ' (' + (U.us() ? Math.round(km / 1.609) + ' mi' : Math.round(km) + ' km') + ' away)'; })(stn.geometry && stn.geometry.coordinates) + ': <b style="color:var(--text)">' + n(U.cT(o.temperature.value)) + U.t() + '</b>' + (o.textDescription ? ', ' + esc(o.textDescription.toLowerCase()) : '') + ' · ' + SW.fmt(Date.parse(o.timestamp) / 1000, data.timezone, 'time');

@@ -31,7 +31,7 @@
       if (a <= today) { const end = b < today ? b : today; put(await api.json('https://archive-api.open-meteo.com/v1/archive?' + q + '&start_date=' + a + '&end_date=' + end, b < today ? 86400 : 3600), 'actual'); }
       fc.daily.time.forEach((d, i) => { if (!days[d] || d >= today) { const keep = days[d]; delete days[d]; put({ daily: { time: [d], weather_code: [fc.daily.weather_code[i]], temperature_2m_max: [fc.daily.temperature_2m_max[i]], temperature_2m_min: [fc.daily.temperature_2m_min[i]], precipitation_sum: [fc.daily.precipitation_sum[i]], wind_gusts_10m_max: [fc.daily.wind_gusts_10m_max[i]] } }, 'recent'); if (!days[d] && keep) days[d] = keep; } });
       if (g !== gen) return;
-      await Promise.all([station(loc, g), gauge(loc, g)]);
+      await Promise.all([station(loc, g), gauge(loc, g), diary(loc, g)]);
     } catch (e) { SW.fail(cal, e, () => month(loc)); return; }
     if (g !== gen) return;
     render(loc);
@@ -82,6 +82,13 @@
       });
     } catch (e) { /* no gauge nearby or the archive is quiet: model rain stays */ }
   }
+  // the app's own saved days from a nearby station at the same height (see diary.js): the best record of all, so it wins
+  let dName = null;
+  async function diary(loc, g) {
+    dName = null; if (!SW.diary) return;
+    const dd = await SW.diary.update(loc).catch(() => SW.diary.read(loc)); if (g !== gen || !dd || !dd.stn) return;
+    for (const k in days) { const D = dd.days[k], x = days[k]; if (x.kind === 'forecast' || x.kind === 'today' || !SW.diary.full(D)) continue; x.m = { hi: dT(D.hi), lo: dT(D.lo), pr: x.m ? x.m.pr : null }; x.mSrc = dd.stn.name; x.mAt = { hi: D.hiAt, lo: D.loAt }; if (D.gust != null) x.mGust = U.us() ? D.gust : D.gust * 1.609; dName = dd.stn.name; }
+  }
   const s0 = j => ((j.data || [])[0] || { data: [] }).data.length;
   const RAINY = c => (c >= 51 && c <= 67) || (c >= 80 && c <= 82);
   function best(d) {
@@ -104,7 +111,7 @@
     const dist = s => U.us() ? n(s.km / 1.609) + ' mi' : n(s.km) + ' km';
     $('#hiCal').innerHTML = h + '</div><div class="dim small" style="margin-top:10px;line-height:1.5">' +
       (gStn ? 'Rain is measured by the ' + esc(gStn.name) + ' rain gauge (' + dist(gStn) + ' away), read each morning; each reading is put on the day the rain fell. ' : 'There is no rain gauge close by, so rain marked ≈ is an estimate. ') +
-      (stn ? 'Highs and lows are measured at ' + esc(stn.name) + '. ' : 'There is no thermometer close by, so highs and lows marked ≈ are an estimate for your exact spot from a weather reconstruction, not a measurement. ') +
+      (dName || stn ? 'Highs and lows are measured at ' + esc(dName || stn.name) + (dName ? ' (saved by Skywatch each day)' : '') + '; days marked ≈ have no reading yet. ' : 'There is no thermometer close by, so highs and lows marked ≈ are an estimate for your exact spot from a weather reconstruction, not a measurement. ') +
       'Faded days have not happened yet and show the forecast.</div>';
     $$('.cal-d[data-d]').forEach(e => e.onclick = () => { sel = e.dataset.d; $$('.cal-d').forEach(x => x.classList.toggle('on', x === e)); day(loc, sel); });
     const act = Object.keys(days).filter(k => days[k].kind !== 'forecast').map(k => Object.assign({ k, eT: !days[k].m, eR: !days[k].g }, best(days[k]))), box = $('#hiMonth');
@@ -144,8 +151,8 @@
     const rainTxt = soft ? ((v.pr || 0) > wet / 2 ? '<b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain is expected.' : 'No rain is expected.')
       : x.g ? (x.g.raw >= 0.01 ? 'The ' + esc(gStn.name) + ' rain gauge caught <b>' + n(x.g.pr, pd()) + ' ' + U.p() + '</b> (from ' + (x.g.hr ? (x.g.hr % 12 || 12) + (x.g.hr < 12 ? ' AM' : ' PM') : 'its morning reading') + ' this day to the same time the next).' : 'The ' + esc(gStn.name) + ' rain gauge measured ' + (x.g.trace ? 'only a trace of rain' : 'no rain') + '.')
       : ((v.pr || 0) > wet / 2 ? 'There is no rain gauge close by; the estimate is about <b>' + n(v.pr, pd()) + ' ' + U.p() + '</b> of rain.' : 'There is no rain gauge close by; the estimate is no rain.');
-    const story = (fut ? 'This day has not happened yet. The forecast is ' : x.kind === 'today' ? 'Today is still under way. So far and for the rest of the day: ' : 'It was ') + w.text.toLowerCase() + '. ' + (soft ? 'Expect a high near ' : estT ? 'The high was about ' : 'The high was ') + '<b>' + n(v.hi) + '°</b> around ' + SW.fmt(h.time[iH], tz, 'hour') + ' and ' + (soft ? 'a low near ' : estT ? 'the low about ' : 'the low was ') + '<b>' + n(v.lo) + '°</b> around ' + SW.fmt(h.time[iL], tz, 'hour') + (estT ? ' (estimates: no thermometer close by)' : '') + '. ' +
-      rainTxt + (iG >= 0 ? ' The strongest gust ' + (soft ? 'should be' : 'was') + ' about ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + (soft ? '' : ' (estimate)') + '.' : '');
+    const story = (fut ? 'This day has not happened yet. The forecast is ' : x.kind === 'today' ? 'Today is still under way. So far and for the rest of the day: ' : 'It was ') + w.text.toLowerCase() + '. ' + (soft ? 'Expect a high near ' : estT ? 'The high was about ' : 'The high was ') + '<b>' + n(v.hi) + '°</b> around ' + SW.fmt(x.mAt ? x.mAt.hi : h.time[iH], tz, 'hour') + ' and ' + (soft ? 'a low near ' : estT ? 'the low about ' : 'the low was ') + '<b>' + n(v.lo) + '°</b> around ' + SW.fmt(x.mAt ? x.mAt.lo : h.time[iL], tz, 'hour') + (estT ? ' (estimates: no thermometer close by)' : '') + '. ' +
+      rainTxt + (x.mGust != null && !soft ? ' The strongest gust measured was ' + n(x.mGust) + ' ' + U.w() + '.' : iG >= 0 ? ' The strongest gust ' + (soft ? 'should be' : 'was') + ' about ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + (soft ? '' : ' (estimate)') + '.' : '');
 
     // how the forecast did, 1 to 7 days ahead
     let rows = '', score = [];
@@ -161,9 +168,10 @@
     const accuracy = fut ? (rows ? '<table><tr><th>Forecast made</th><th>High</th><th>Low</th><th>Rain</th></tr>' + rows.replace(/<span class="lo">[^<]*<\/span>/g, '').replace(/<td><span class="pill"[^>]*>[^<]*<\/span><\/td>/g, '') + '</table><div class="dim small" style="margin-top:8px">How the forecast for this day has been changing as it gets closer. If the numbers keep jumping around, confidence is low.</div>' : '<div class="state">Earlier forecasts for this day are not available yet.</div>')
       : rows ? '<table><tr><th>Forecast made</th><th>High</th><th>Low</th><th>Rain</th><th>Verdict</th></tr><tr><td><b>What happened</b></td><td><b>' + n(aHi) + '°</b></td><td><b>' + n(aLo) + '°</b></td><td><b>' + (rain > wet / 2 ? n(rain, pd()) + ' ' + U.p() : 'dry') + '</b></td><td></td></tr>' + rows + '</table><div class="dim small" style="margin-top:8px">Each row is what the forecast said that many days ahead, compared with what the weather really did at this spot. Forecasts normally get better as the day gets closer.</div>'
         : '<div class="state">Saved forecasts only go back to early 2024, so there is nothing to grade for this day.</div>';
-    const meas = x.m ? '<div class="dim small" style="margin-top:8px">Measured at ' + esc(stn.name) + ': high ' + n(x.m.hi) + '°, low ' + n(x.m.lo) + '°' + (x.m.pr != null ? ', rain ' + n(x.m.pr, pd()) + ' ' + U.p() : '') + '. The chart below is for your exact spot, so it can differ by a degree or two.</div>' : '';
+    const meas = x.m ? '<div class="dim small" style="margin-top:8px">Measured at ' + esc(x.mSrc || stn.name) + ': high ' + n(x.m.hi) + '°, low ' + n(x.m.lo) + '°' + (x.m.pr != null ? ', rain ' + n(x.m.pr, pd()) + ' ' + U.p() : '') + '. The chart below is for your exact spot, so it can differ by a degree or two.</div>' : '';
     box.innerHTML = '<div class="card" id="hiStory"><h2>' + title + '</h2><div class="hero" style="gap:18px;flex-wrap:nowrap"><div class="ico">' + w.icon + '</div><div style="font-size:15px;line-height:1.55">' + story + meas + '</div></div>' +
-      '<div class="idx" style="margin-top:12px"><div><span>Warmest hour</span><b>' + SW.fmt(h.time[iH], tz, 'hour') + ' · ' + n(T[iH]) + '°</b></div><div><span>Coldest hour</span><b>' + SW.fmt(h.time[iL], tz, 'hour') + ' · ' + n(T[iL]) + '°</b></div>' + moist(h, tz) + '</div></div>' +
+      '<div class="idx" style="margin-top:12px">' + (x.mAt ? '<div><span>Warmest (measured)</span><b>' + SW.fmt(x.mAt.hi, tz, 'time') + ' · ' + n(v.hi) + '°</b></div><div><span>Coldest (measured)</span><b>' + SW.fmt(x.mAt.lo, tz, 'time') + ' · ' + n(v.lo) + '°</b></div>'
+        : '<div><span>Warmest hour' + (soft ? '' : ' (est.)') + '</span><b>' + SW.fmt(h.time[iH], tz, 'hour') + ' · ' + n(T[iH]) + '°</b></div><div><span>Coldest hour' + (soft ? '' : ' (est.)') + '</span><b>' + SW.fmt(h.time[iL], tz, 'hour') + ' · ' + n(T[iL]) + '°</b></div>') + moist(h, tz) + '</div></div>' +
       '<div class="card" id="hiHourCard"><h2>Hour by hour' + (soft ? '' : ' <span class="dim small" style="text-transform:none;letter-spacing:0">estimated for your exact spot</span>') + '</h2><div class="chart" id="hiChart"></div></div>' +
       '<div class="card" id="hiAccCard"><h2>' + (fut ? 'How the forecast has changed' : 'How good was the forecast?') + '</h2>' + accuracy + '</div>';
     const series = [{ label: fut ? 'Latest forecast' : 'What happened', color: '#ffffff', width: 3 }], data = [h.time, T];

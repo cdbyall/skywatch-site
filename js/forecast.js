@@ -24,7 +24,7 @@
     const d = data, c = d.current, tz = d.timezone, w = SW.wx(c.weather_code, !c.is_day), dl = d.daily, m = moon(c.time);
     const vis = c.visibility == null ? null : U.cD(c.visibility / 1000);
     body.innerHTML =
-      '<div class="card"><div class="hero"><div class="ico">' + w.icon + '</div><div><div class="big">' + n(c.temperature_2m) + '°</div><div>' + w.text + ' · feels like ' + n(c.apparent_temperature) + '°</div><div class="dim small" id="fcObs">Model analysis for ' + SW.fmt(c.time, tz, 'fullz') + '</div></div>' +
+      '<div class="card"><div class="hero"><div class="ico">' + w.icon + '</div><div><div class="big">' + n(c.temperature_2m) + '°</div><div>' + w.text + ' · feels like ' + n(c.apparent_temperature) + '°</div><div class="dim small" id="fcObs">Model analysis for ' + SW.fmt(c.time, tz, 'fullz') + '</div><div class="dim small" id="fcRec"></div></div>' +
       '<div class="kv">' +
       kv('Wind', SW.compass(c.wind_direction_10m) + ' ' + n(c.wind_speed_10m) + ' ' + U.w()) + kv('Gusts', n(c.wind_gusts_10m) + ' ' + U.w()) + kv('Humidity', n(c.relative_humidity_2m) + '%') + kv('Dew point', n(c.dew_point_2m) + '°') +
       kv('Pressure', n(c.pressure_msl, 1) + ' hPa') + kv('Cloud', n(c.cloud_cover) + '%') + kv('Visibility', vis == null ? '—' : n(Math.min(vis, 99), vis < 10 ? 1 : 0) + ' ' + U.d()) + kv('UV index', n(c.uv_index, 1)) +
@@ -42,7 +42,14 @@
       '<div class="card"><h2>Pressure &amp; cloud</h2><div class="chart" id="chC"></div></div>' +
       '</div>' +
       '<div class="card"><h2>National Weather Service forecast</h2><div id="fcNws"><div class="state"><span class="spin"></span>Loading…</div></div></div>';
-    spanButtons(); charts(); nws(loc); aqi(loc);
+    spanButtons(); charts(); nws(loc); aqi(loc); recLine(loc, tz);
+  }
+  async function recLine(loc, tz) { // today's normal and records, from the History page's record books
+    try {
+      const s = (await SW.records.load(loc))[0], md = new Intl.DateTimeFormat('en-CA', { timeZone: tz, month: '2-digit', day: '2-digit' }).format(new Date()).replace('/', '-'), d = s.day[md], nm = SW.records.normal(s, md), el = $('#fcRec'); if (!el || !d) return;
+      const T = f => n(U.us() ? f : (f - 32) * 5 / 9) + '°';
+      el.innerHTML = (nm ? 'Normal today ' + T(nm.hi) + ' / ' + T(nm.lo) + ' · ' : '') + 'Record ' + T(d.hi.v) + ' (' + d.hi.date.slice(0, 4) + ') / ' + T(d.lo.v) + ' (' + d.lo.date.slice(0, 4) + ')' + (s.est ? ', estimated' : ' at ' + esc(s.name));
+    } catch (e) { /* records are a bonus; the forecast stands without them */ }
   }
   function spanButtons() { // 1 / 2 / 3 / 7 / 10 days: changes the standout-hours card and the hour-by-hour charts
     SW.$$('#fcSpan button').forEach(function pickSpan(b) { b.classList.toggle('on', +b.dataset.h === span); b.onclick = () => { span = +b.dataset.h; $('#fc24').outerHTML = next24(); spanButtons(); charts(); }; });

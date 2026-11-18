@@ -13,7 +13,7 @@
     let yrs = ''; for (let y = now.getFullYear(); y >= 1940; y--) yrs += '<option>' + y + '</option>';
     root.innerHTML = '<div class="head"><h1>What actually happened</h1><span class="dim">' + esc(loc.name) + '</span><div class="spacer"></div>' +
       '<button class="btn ghost" id="hiPrev">◀</button><select id="hiMon" style="width:auto">' + MON.map((m, i) => '<option value="' + i + '">' + m + '</option>').join('') + '</select><select id="hiYear" style="width:auto">' + yrs + '</select><button class="btn ghost" id="hiNext">▶</button><button class="btn ghost" id="hiToday">Today</button></div>' +
-      '<div class="hi-split"><div class="grid" style="align-content:start"><div class="card" id="hiCalCard"><div id="hiCal"></div></div><div class="card" id="hiMonthCard"><h2>The month in numbers</h2><div class="idx" id="hiMonth"></div></div></div><div class="grid" style="align-content:start" id="hiDay"><div class="card"><div class="state">Click any day on the calendar.</div></div></div></div>';
+      '<div class="hi-split"><div class="grid" style="align-content:start"><div class="card" id="hiCalCard"><div id="hiCal"></div></div><div class="card" id="hiMonthCard"><h2>The month in numbers</h2><div class="idx" id="hiMonth"></div></div><div class="card" id="hiRecCard"><h2>Records</h2><div id="hiRec"><div class="state"><span class="spin"></span>Opening the record books…</div></div></div></div><div class="grid" style="align-content:start" id="hiDay"><div class="card"><div class="state">Click any day on the calendar.</div></div></div></div>';
     const go = (y, m) => { Y = y; M = m; if (M < 0) { M = 11; Y--; } if (M > 11) { M = 0; Y++; } month(loc); };
     $('#hiPrev').onclick = () => go(Y, M - 1); $('#hiNext').onclick = () => go(Y, M + 1);
     $('#hiMon').onchange = e => go(Y, +e.target.value); $('#hiYear').onchange = e => go(+e.target.value, M);
@@ -117,7 +117,14 @@
   }
 
   let dayGen = 0;
+  let recGen = 0;
+  async function recs(loc, d) { // record highs, lows and rain for the chosen day, its month and all time
+    const g = ++recGen, box = $('#hiRec'); if (!box) return;
+    try { const s = await SW.records.load(loc); if (g === recGen && $('#hiRec')) $('#hiRec').innerHTML = SW.records.card(s, d); }
+    catch (e) { if (g === recGen) SW.fail(box, e, () => recs(loc, d)); }
+  }
   async function day(loc, d) {
+    recs(loc, d);
     const g = ++dayGen, box = $('#hiDay'), x = days[d]; if (!box) return;
     const date = new Date(d + 'T12:00:00'), title = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     if (!x) { box.innerHTML = '<div class="card"><h2>' + title + '</h2><div class="state">There is no record for this day yet.</div></div>'; return; }

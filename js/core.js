@@ -87,8 +87,30 @@
     flying.set(url, p);
     try { return await p; } finally { flying.delete(url); }
   }
+  // Models sometimes call a warm shower "snow" (the Sea Ranch at 51°F, freezing level near 4,700 ft). Snow cannot reach the
+  // ground above about 38°F, so any snow code at a warmer hour becomes the matching rain code, and each day's code is
+  // rebuilt from its corrected hours. Applied to every Open-Meteo answer, so every page agrees.
+  const SNOW2RAIN = { 71: 61, 73: 63, 75: 65, 77: 61, 85: 80, 86: 81 };
+  function fixSnow(j) {
+    if (Array.isArray(j)) { j.forEach(fixSnow); return j; }
+    if (!j || typeof j !== 'object') return j;
+    const warm = (t, unit) => t != null && (/F/.test(unit || '') ? t : t * 9 / 5 + 32) > 38.3;
+    const blk = (b, u) => { if (!b || b.weather_code == null || b.temperature_2m == null) return; const unit = u && u.temperature_2m;
+      if (Array.isArray(b.weather_code)) b.weather_code = b.weather_code.map((c, i) => SNOW2RAIN[c] && warm(b.temperature_2m[i], unit) ? SNOW2RAIN[c] : c);
+      else if (SNOW2RAIN[b.weather_code] && warm(b.temperature_2m, unit)) b.weather_code = SNOW2RAIN[b.weather_code]; };
+    blk(j.hourly, j.hourly_units); blk(j.current, j.current_units); blk(j.minutely_15, j.minutely_15_units);
+    const d = j.daily, h = j.hourly;
+    if (d && Array.isArray(d.weather_code) && d.time) d.weather_code = d.weather_code.map(function dayCode(c, i) {
+      if (!SNOW2RAIN[c]) return c;
+      if (h && Array.isArray(h.weather_code) && h.time) { let worst = -1; const a = d.time[i], b = d.time[i + 1] != null ? d.time[i + 1] : (typeof a === 'number' ? a + 86400 : null), inDay = t => typeof a === 'number' ? t >= a && t < b : String(t).slice(0, 10) === a;
+        h.time.forEach((t, k) => { if (inDay(t) && h.weather_code[k] != null) worst = Math.max(worst, h.weather_code[k]); }); if (worst >= 0) return worst; }
+      return d.temperature_2m_min && warm(d.temperature_2m_min[i], j.daily_units && j.daily_units.temperature_2m_min) ? SNOW2RAIN[c] : c;
+    });
+    return j;
+  }
+  SW.fixSnow = fixSnow;
   SW.api = {
-    json: (url, ttl) => raw(url, 'json', ttl == null ? 300 : ttl),
+    json: (url, ttl) => { const p = raw(url, 'json', ttl == null ? 300 : ttl); return /open-meteo\.com/.test(url) ? p.then(fixSnow) : p; },
     text: (url, ttl) => raw(url, 'text', ttl == null ? 300 : ttl),
     clear: () => cache.clear(),
     log: () => feedLog

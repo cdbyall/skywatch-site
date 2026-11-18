@@ -32,17 +32,30 @@
     const f = feedLog[host] = feedLog[host] || { ok: 0, fail: 0, last: '' };
     if (ok) f.ok++; else { f.fail++; f.last = msg; }
   }
-  // On the website, servers that refuse a web page are reached through the site's own relay (/api/p).
-  // A server is tried directly first; if the browser blocks it, the relay is used for it from then on.
-  const WEB = location.protocol !== 'file:' && !window.swShell, relayed = new Set(WEB ? ['www.nhc.noaa.gov', 'aviationweather.gov'] : []), relayLog = {};
-  SW.web = WEB; SW.relayed = () => Object.assign({}, relayLog);
-  const viaRelay = (url, opts) => fetch('/api/p?u=' + encodeURIComponent(url), opts);
-  SW.fetch = async function swFetch(url, opts) {
-    if (!WEB || !/^https:/.test(url)) return fetch(url, opts);
-    const host = new URL(url).host;
-    if (relayed.has(host)) { relayLog[host] = (relayLog[host] || 0) + 1; return viaRelay(url, opts); }
-    try { return await fetch(url, opts); }
-    catch (e) { if (e.name === 'AbortError') throw e; relayed.add(host); relayLog[host] = (relayLog[host] || 0) + 1; return viaRelay(url, opts); }
+  // On the website, two sources (aviationweather.gov and the hurricane center) refuse requests from a web page.
+  // GitHub fetches those for us every 15 minutes (see .github/workflows/feeds.yml) and the page reads GitHub's copy.
+  const WEB = location.protocol !== 'file:' && !window.swShell, ghHost = /^([\w-]+)\.github\.io$/.exec(location.hostname);
+  const MIRROR = 'https://raw.githubusercontent.com/' + (ghHost ? ghHost[1] + '/' + (location.pathname.split('/')[1] || 'skywatch-site') : 'cdbyall/skywatch-site') + '/data/';
+  const MIR = [[/^https:\/\/www\.nhc\.noaa\.gov\/CurrentStorms\.json/, 'CurrentStorms.json'], [/metars\.cache\.csv\.gz/, 'metars.cache.csv.gz'], [/stations\.cache\.json\.gz/, 'stations.cache.json.gz']];
+  const stamp = () => Math.floor(Date.now() / 300000), mirrorLog = {};
+  SW.web = WEB; SW.relayed = () => Object.assign({}, mirrorLog);
+  let csvP = null, csvAt = 0;
+  async function stationBox(url) { // the map's station overlay, cut out of the mirrored worldwide file
+    if (!csvP || Date.now() - csvAt > 600000) { csvAt = Date.now(); csvP = fetch(MIRROR + 'metars.cache.csv.gz?t=' + stamp()).then(r => new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text()); csvP.catch(() => { csvP = null; }); }
+    const txt = await csvP, bb = new URL(url).searchParams.get('bbox').split(',').map(Number), out = [], num = v => v === '' || v == null ? null : +v;
+    for (const l of txt.split('\n')) {
+      if (l[0] !== '"') continue; const e = l.indexOf('",'); if (e < 0) continue; const f = l.slice(e + 2).split(','), la = +f[2], lo = +f[3];
+      if (f[4] === '' || la < bb[0] || la > bb[2] || lo < bb[1] || lo > bb[3]) continue;
+      out.push({ icaoId: f[0], lat: la, lon: lo, temp: +f[4], dewp: num(f[5]), wdir: num(f[6]), wspd: num(f[7]), wgst: num(f[8]), visib: f[9], fltCat: f[29] || '', rawOb: l.slice(1, e), name: '' });
+    }
+    return new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json' } });
+  }
+  SW.fetch = function swFetch(url, opts) {
+    if (WEB) {
+      if (url.indexOf('https://aviationweather.gov/api/data/metar') === 0) { mirrorLog.stations = (mirrorLog.stations || 0) + 1; return stationBox(url); }
+      for (const m of MIR) if (m[0].test(url)) { mirrorLog[m[1]] = (mirrorLog[m[1]] || 0) + 1; return fetch(MIRROR + m[1] + '?t=' + stamp(), opts); }
+    }
+    return fetch(url, opts);
   };
   async function raw(url, kind, ttl, tries) {
     const hit = cache.get(url);

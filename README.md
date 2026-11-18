@@ -1,3 +1,5 @@
-# Skywatch website
+# Skywatch
 
-Built from the Skywatch desktop app by `node build/site.js`. `public/` is the page; `api/p.js` relays the two weather feeds that refuse requests from a web page. Do not edit by hand: change the app and rebuild.
+A home weather page. Built from the Skywatch desktop app by `node build/site.js`; do not edit by hand.
+
+Weather data comes straight from public sources (NOAA, the National Weather Service, Open-Meteo, NASA and others; the full list is on the Sources page). The `data` branch holds a copy of two feeds that a web page cannot fetch directly, refreshed every 15 minutes.

@@ -3,18 +3,25 @@
   const { $, $$, st, api, esc } = SW;
   let view = 'map';
   const fresh = {}; // view -> key of what it last loaded
-  const mods = { forecast: SW.forecast, models: SW.models, sounding: SW.sounding, alerts: SW.alerts, briefing: SW.briefing, marine: SW.marine, lookup: SW.lookup, history: SW.history, fire: SW.fire, tides: SW.tides, fun: SW.fun, nature: SW.nature, drive: SW.drive };
+  const mods = { forecast: SW.forecast, models: SW.models, sounding: SW.sounding, alerts: SW.alerts, briefing: SW.briefing, marine: SW.marine, lookup: SW.lookup, history: SW.history, fire: SW.fire, tides: SW.tides, fun: SW.fun, nature: SW.nature, drive: SW.drive, mine: SW.mine };
 
+  // draws a page into its own (possibly hidden) section, unless it is already drawn for this place; Your page uses it too
+  SW.loadView = function loadView(v) {
+    if (v === 'map' || v === 'about' || v === 'mine' || !mods[v]) return Promise.resolve();
+    const l = SW.loc(), key = l ? l.lat + ',' + l.lon + st.units : '';
+    if (fresh[v] === key && v !== 'alerts') return Promise.resolve();
+    fresh[v] = key;
+    return Promise.resolve(mods[v].load()).catch(e => console.error(v, e));
+  };
   SW.show = function show(v) {
+    if (view === 'mine' && v !== 'mine') SW.mine.giveBack(); // its panels go home before their own page opens
     view = v;
     $$('#rail button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (v === 'tides' && b.dataset.view === 'marine')));
     $$('main .view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
     if (v === 'map') { SW.map.shown(); return Promise.resolve(); }
     if (v === 'about') { about(); return Promise.resolve(); }
-    const l = SW.loc(), key = l ? l.lat + ',' + l.lon + st.units : '';
-    if (fresh[v] === key && v !== 'alerts') return Promise.resolve();
-    fresh[v] = key;
-    return Promise.resolve(mods[v].load()).catch(e => console.error(v, e));
+    if (v === 'mine') return Promise.resolve(SW.mine.load()).catch(e => console.error(v, e));
+    return SW.loadView(v);
   };
   $$('#rail button').forEach(b => b.onclick = () => SW.show(b.dataset.view === 'marine' ? (st.oceanTab || 'tides') : b.dataset.view));
   document.addEventListener('click', function oceanTabs(e) { const b = e.target.closest && e.target.closest('.oc-tabs button'); if (!b) return; st.oceanTab = b.dataset.t; SW.save(); SW.show(b.dataset.t); });
@@ -145,10 +152,11 @@
   // ---------- self-test hooks (npm run selftest) ----------
   SW.selftestViews = function selftestViews() {
     if (!SW.loc()) { st.locs = [{ name: 'Santa Rosa', region: 'California, US', lat: 38.4405, lon: -122.7141 }]; st.cur = 0; chips(); $('#welcome').classList.add('hidden'); SW.emit('loc'); }
-    return ['map', 'forecast', 'lookup', 'history', 'models', 'sounding', 'alerts', 'fire', 'nature', 'drive', 'tides', 'marine', 'briefing', 'fun', 'about'];
+    return ['map', 'forecast', 'lookup', 'history', 'models', 'sounding', 'alerts', 'fire', 'nature', 'drive', 'tides', 'marine', 'briefing', 'fun', 'about', 'mine'];
   };
   SW.selftest = async function selftest(v) {
     await SW.show(v);
+    if (v === 'mine') { await new Promise(r => setTimeout(r, 1500)); if ($('#mnStart')) $('#mnStart').click(); await new Promise(r => setTimeout(r, 9000)); const el = $('#v-mine'); return { chars: el.innerText.length, errors: $$('.state.err', el).map(e => e.innerText.slice(0, 120)), waiting: $$('.spin', el).length, panels: $$('#mnGrid .mn-p').length, filled: $$('#mnGrid .mn-body').filter(b => b.querySelector('.card, #map')).length, mapW: $('#mnGrid #map') ? $('#mnGrid #map').clientWidth : 0 }; }
     if (v === 'map') await SW.map.ready(); else await new Promise(r => setTimeout(r, v === 'fire' || v === 'fun' || v === 'history' || v === 'nature' || v === 'drive' ? 6000 : 1500));
     const el = $('#v-' + v);
     if (v === 'lookup' && $('#luNightBtn')) { $('#luNightBtn').click(); $('#luClouds').scrollIntoView(); }

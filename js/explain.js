@@ -256,6 +256,7 @@
     ['#nowLine', 'A quick summary of the weather right now at your chosen place, and when the app last refreshed.'],
     ['#unitBtn', 'Switch between American units (°F, mph, inches) and metric (°C, km/h, millimeters).'],
     ['#refreshBtn', 'Throw away everything stored and fetch it all fresh. The app also refreshes by itself every few minutes.'],
+    ['#rail [data-view=mine]', 'Your page: your own page made from the panels you pick from any of the other pages, arranged the way you like.'],
     ['#rail [data-view=map]', 'The live map: radar, satellite, warnings and model maps layered on top of each other.'],
     ['#rail [data-view=forecast]', 'The forecast for your place: right now, the next 10 days, and hour-by-hour charts.'],
     ['#rail [data-view=models]', 'Compare what different computer forecasts say. Agreement means confidence.'],
@@ -272,7 +273,11 @@
     ['#rail [data-view=tides]', 'Everything about the tides: next high and low, the week ahead, and the real water level.'],
     ['#rail [data-view=fun]', 'Just for fun: the hottest, coldest, windiest and most comfortable places on Earth right now.'],
     ['#rail [data-view=about]', 'Where every piece of data comes from, and whether each source is answering.'],
-    ['#recDays', 'Save the radar picture for about 470 miles around your place every 5 minutes, so you can replay a storm later. Pick how long to keep it; older pictures are deleted automatically. It uses roughly 2 to 15 MB a day and only records while Skywatch is running.'],
+    ['#recDays', 'Save the radar picture for about 470 miles around your place every 5 minutes, so you can replay a storm later. Pick how long to keep it; older pictures are deleted automatically. It uses roughly 2 to 15 MB a day. Skywatch keeps recording from the tray by the clock after you close the window, and starts again when you sign in to Windows.'],
+    ['#satDays', 'Save the satellite picture (GOES true color: real color by day, cloud heat at night) for about 470 miles around your place every 10 minutes, so you can replay how the clouds moved. Pick how long to keep it; older pictures are deleted automatically. It uses about 80 MB a day. It keeps recording from the tray after you close the window.'],
+    ['#satInfo', 'How much satellite is saved on this computer and how much disk space it is using.'],
+    ['#satClear', 'Delete all the saved satellite pictures from this computer.'],
+    ['#satWin', 'Which six-hour stretch of your satellite recording to replay.'],
     ['#recInfo', 'How much radar is saved on this computer and how much disk space it is using.'],
     ['#recClear', 'Delete all the saved radar from this computer.'],
     ['#recWin', 'Which six-hour stretch of your recording to replay.'],
@@ -318,6 +323,16 @@
     ['#mdDays', 'How many days ahead to compare. Short-range models stop after two or three days.'],
     ['.u-series', el => modelTip(el.textContent) || (/average/i.test(el.textContent) ? 'The average of all the runs: the single best guess.' : /lowest/i.test(el.textContent) ? 'The lowest value any run produced: the bottom of what is plausible.' : /highest/i.test(el.textContent) ? 'The highest value any run produced: the top of what is plausible.' : 'Click to show or hide this line. Move across the chart to read its value at any time.')],
     ['#mdTable td:first-child', el => modelTip(el.textContent)],
+    ['#mnAdd, #mnAdd2', 'Add a panel to Your page: choose a page, then press Add next to any of its panels. You can add as many as you like.'],
+    ['#mnStart', 'Fill Your page with a starter set: current conditions, the radar map, the 10-day outlook, this month\'s history and the sun and UV. Change it any way you like afterward.'],
+    ['#mnPage', 'Which page to pick panels from.'],
+    ['#mnPickX', 'Close the panel chooser.'],
+    ['.mn-opt button', 'Put this panel on Your page. It is the real panel, so it updates and works just like on its own page.'],
+    ['.mn-w', 'Make this panel stretch across the whole page, or go back to half width so two sit side by side.'],
+    ['.mn-up', 'Move this panel one place earlier on Your page.'],
+    ['.mn-dn', 'Move this panel one place later on Your page.'],
+    ['.mn-x', 'Take this panel off Your page. It stays on its own page.'],
+    ['.mn-empty', 'Your page is empty. Add the panels you look at most from any of the other pages.'],
     ['#mdTable td', 'That model\'s high and low for the day, with its total rain underneath.'],
     ['#sdModel', el => 'Which computer forecast the sounding comes from. ' + (MODEL[MODEL_ID[el.value]] || '')],
     ['#sdHour', 'Slide to see how the air overhead changes over the next three days.'],
@@ -394,9 +409,9 @@
   // self-test: on every screen, list the controls and readouts that have no explanation
   SW.explainTest = async function explainTest() {
     const out = { covered: 0, missing: [] }, sel = '.cl, .cal-d[data-d], .cam, .fn li, .fn-top, .fi-gauge, .pill, select, button, input, .kv > div, .idx > div, .card, .chk, .day, .al, canvas, #legend, #nowLine, .chip, .u-series, #mdTable td:first-child';
-    for (const vv of ['map', 'forecast', 'lookup', 'history', 'models', 'sounding', 'alerts', 'fire', 'nature', 'nature/plants', 'nature/animals', 'drive', 'drive/trip', 'tides', 'marine', 'briefing', 'fun', 'about']) {
+    for (const vv of ['map', 'forecast', 'lookup', 'history', 'models', 'sounding', 'alerts', 'fire', 'nature', 'nature/plants', 'nature/animals', 'drive', 'drive/trip', 'tides', 'marine', 'briefing', 'fun', 'about', 'mine']) {
       const v = vv.split('/')[0], part = vv.split('/')[1];
-      await SW.show(v); if (v === 'nature') { await new Promise(r => setTimeout(r, part ? 500 : 7000)); $('#naTabs [data-t=' + (part || 'air') + ']').click(); } if (part === 'trip') await SW.driveTest(); await new Promise(r => setTimeout(r, v === 'map' ? 1500 : part ? 1500 : v === 'fire' || v === 'fun' || v === 'history' ? 8000 : 4500));
+      await SW.show(v); if (v === 'nature') { await new Promise(r => setTimeout(r, part ? 500 : 7000)); $('#naTabs [data-t=' + (part || 'air') + ']').click(); } if (part === 'trip') await SW.driveTest(); await new Promise(r => setTimeout(r, v === 'map' ? 1500 : part ? 1500 : v === 'fire' || v === 'fun' || v === 'history' || v === 'mine' ? 8000 : 4500));
       $$(sel + ', .na-row, .na-al, .na-sp, .na-tile, .na-g, .na-garden, .dr-run, .dr-strip, .dr-verdict, .dr-key', $('#v-' + v)).concat(v === 'map' ? $$(sel, $('#top')).concat($$('button', $('#rail'))) : []).forEach(function check(el) {
         if (!el.offsetParent) return;
         if (lookup(el)) out.covered++; else out.missing.push(vv + ': ' + el.tagName + (el.id ? '#' + el.id : '') + '.' + el.className + ' "' + el.textContent.trim().slice(0, 30) + '"');

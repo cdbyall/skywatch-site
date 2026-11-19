@@ -57,28 +57,42 @@
     }
     return fetch(url, opts);
   };
+  // Open-Meteo (the free forecast service) turns away more than a few requests at once from one computer, so its
+  // requests wait their turn: at most 3 in flight. A "too many at once" answer is retried after a pause.
+  const lanes = {}, LANE_MAX = 3;
+  function lane(url) { return /open-meteo\.com/.test(url) ? 'om' : null; }
+  async function gated(url, go) {
+    const k = lane(url); if (!k) return go();
+    const L = lanes[k] || (lanes[k] = { n: 0, q: [] });
+    if (L.n >= LANE_MAX) await new Promise(r => L.q.push(r));
+    L.n++;
+    try { return await go(); } finally { L.n--; const nx = L.q.shift(); if (nx) nx(); }
+  }
   async function raw(url, kind, ttl, tries) {
     const hit = cache.get(url);
     if (hit && Date.now() - hit.t < ttl * 1000) return hit.v;
     if (flying.has(url)) return flying.get(url);
     const p = (async function fetchOnce() {
-      let lastErr;
+      let lastErr, busy = 0;
       for (let i = 0; i < (tries || 3); i++) {
         try {
           const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 25000);
-          const r = await SW.fetch(url, { signal: ctl.signal, headers: kind === 'json' ? { Accept: 'application/geo+json, application/json' } : {} });
+          const v = await gated(url, async function oneTry() {
+            const r = await SW.fetch(url, { signal: ctl.signal, headers: kind === 'json' ? { Accept: 'application/geo+json, application/json' } : {} });
+            if (!r.ok) {
+              let reason = '';
+              try { const j = await r.json(); reason = j.reason || j.detail || j.title || ''; } catch (e) { }
+              // "too many at once" passes in a moment; a daily or hourly limit, a missing page or a bad request does not
+              const er = new Error(reason || 'Server answered ' + r.status); er.final = r.status === 404 || r.status === 400 || (r.status === 429 && !/concurrent/i.test(reason)); er.busy = r.status === 429 && /concurrent/i.test(reason); throw er;
+            }
+            return kind === 'json' ? await r.json() : await r.text();
+          });
           clearTimeout(to);
-          if (!r.ok) {
-            let reason = '';
-            try { const j = await r.json(); reason = j.reason || j.detail || j.title || ''; } catch (e) { }
-            const er = new Error(reason || 'Server answered ' + r.status); er.final = r.status === 429 || r.status === 404 || r.status === 400; throw er;
-          }
-          const v = kind === 'json' ? await r.json() : await r.text();
           cache.set(url, { t: Date.now(), v });
           if (cache.size > 300) cache.delete(cache.keys().next().value);
           note(url, true);
           return v;
-        } catch (e) { lastErr = e.name === 'AbortError' ? new Error('Timed out') : e; if (e.final) break; if (e instanceof SyntaxError) lastErr = new Error('The server sent a garbled answer'); await new Promise(r => setTimeout(r, 700 + i * 2300)); }
+        } catch (e) { lastErr = e.name === 'AbortError' ? new Error('Timed out') : e; if (e.final) break; if (e instanceof SyntaxError) lastErr = new Error('The server sent a garbled answer'); if (e.busy && busy++ < 6) { lastErr = new Error('The forecast service is busy'); i = Math.min(i, (tries || 3) - 2); } await new Promise(r => setTimeout(r, e.busy ? 1500 + Math.random() * 1500 : 700 + i * 2300)); }
       }
       note(url, false, String(lastErr.message || lastErr));
       if (hit) return hit.v; // stale data beats no data

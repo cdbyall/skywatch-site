@@ -40,7 +40,8 @@
     ['GOES-East_ABI_Air_Mass', 'GOES-East air mass', 6],
     ['GOES-West_ABI_Air_Mass', 'GOES-West air mass', 6],
     ['Himawari_AHI_Band13_Clean_Infrared', 'Himawari infrared (Asia / W. Pacific)', 6],
-    ['Himawari_AHI_Band3_Red_Visible_1km', 'Himawari visible (Asia / W. Pacific)', 7]
+    ['Himawari_AHI_Band3_Red_Visible_1km', 'Himawari visible (Asia / W. Pacific)', 7],
+    ['rec', 'My recordings (saved on this computer)', 7]
   ];
   const SPC = [['none', 'Off'], ['day1otlk_cat', 'Today: overall risk'], ['day1otlk_torn', 'Today: tornado'], ['day1otlk_wind', 'Today: wind'], ['day1otlk_hail', 'Today: hail'], ['day2otlk_cat', 'Tomorrow: overall risk'], ['day3otlk_cat', 'Day 3: overall risk']];
   const MF_MODELS = [['best_match', 'Best available blend'], ['gfs_seamless', 'GFS (US global)'], ['ncep_hrrr_conus', 'HRRR (US 3 km)'], ['ncep_nam_conus', 'NAM (US)'], ['ncep_nbm_conus', 'NBM (US blend)'], ['ecmwf_ifs025', 'ECMWF IFS (Euro)'], ['ecmwf_aifs025_single', 'ECMWF AIFS (AI)'], ['icon_seamless', 'ICON (German)'], ['gem_seamless', 'GEM (Canadian)'], ['ukmo_seamless', 'UKMO (British)']];
@@ -77,7 +78,8 @@
     fill($('#baseSel'), Object.keys(BASES).map(k => [k, BASES[k][0]]), st.map.base);
     if (SW.web && st.map.radar === 'rec') st.map.radar = 'iem';
     fill($('#radarSel'), SW.web ? RADAR.filter(r => r[0] !== 'rec') : RADAR, st.map.radar); // recordings need the desktop app
-    fill($('#satSel'), SAT, st.map.sat);
+    if (SW.web && st.map.sat === 'rec') st.map.sat = 'GOES-West_ABI_GeoColor';
+    fill($('#satSel'), SW.web ? SAT.filter(r => r[0] !== 'rec') : SAT, st.map.sat);
     fill($('#spcSel'), SPC, st.map.spc);
     fill($('#mfModel'), MF_MODELS, 'best_match');
     fill($('#mfVar'), Object.keys(MF_VARS).map(k => [k, MF_VARS[k][0]]), 'temperature_2m');
@@ -196,7 +198,7 @@
       } else if (p === 'rv') {
         const j = await api.json('https://api.rainviewer.com/public/weather-maps.json', 120);
         frames = j.radar.past.map(f => ({ t: f.time * 1000, mk: () => L.tileLayer(j.host + f.path + '/256/{z}/{x}/{y}/2/1_1.png', { pane: 'radar', maxNativeZoom: 7, maxZoom: 19, attribution: 'RainViewer' }) }));
-      } else if (p === 'rec') frames = await recFrames();
+      } else if (p === 'rec') frames = await recFrames('radar');
       else if (CONUS[p]) frames = await wmsFrames('conus', CONUS[p]);
       else if (p.startsWith('s_')) {
         if (!site) nearestSite();
@@ -212,7 +214,9 @@
   // NASA publishes, per layer, the newest picture time and how far back it goes; read that so no frame is ever blank.
   async function buildSat() {
     const gen = ++satGen, s = SAT.find(x => x[0] === st.map.sat);
-    if (!s || s[0] === 'none') { useSet('sat', null); return; }
+    if (!s || s[0] === 'none') { useSet('sat', null); $('#satWinRow').classList.add('hidden'); return; }
+    $('#satWinRow').classList.toggle('hidden', s[0] !== 'rec');
+    if (s[0] === 'rec') { const fr = await recFrames('sat'); if (gen === satGen) useSet('sat', fr); return; }
     let end = Math.floor((Date.now() - 70 * 60000) / 600000) * 600000, start = end - 110 * 60000;
     try {
       const xml = await api.text('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml', 600);
@@ -230,48 +234,59 @@
     useSet('sat', frames);
   }
 
-  // ---------- radar recordings kept on this computer ----------
+  // ---------- radar and satellite recordings kept on this computer ----------
   const shellApi = window.swShell && window.swShell.recInfo ? window.swShell : null;
-  let recWinSel = null;
+  const REC_UI = { radar: { days: '#recDays', info: '#recInfo', clear: '#recClear', win: '#recWin', what: 'radar' }, sat: { days: '#satDays', info: '#satInfo', clear: '#satClear', win: '#satWin', what: 'satellite' } };
+  const recWinSel = { radar: null, sat: null };
   const mb = b => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' MB';
   function recShow(info) {
-    const el = $('#recInfo'), f = info.frames;
-    $('#recDays').value = info.days; $('#recClear').classList.toggle('hidden', !f.length);
-    if (!f.length) { el.textContent = info.days ? 'Recording. The first pictures arrive within a minute.' : 'Not recording.'; return; }
+    const u = REC_UI[info.kind] || REC_UI.radar, el = $(u.info), f = info.frames;
+    $(u.days).value = String(info.days); $(u.clear).classList.toggle('hidden', !f.length);
+    if (!f.length) { el.textContent = info.days ? 'Recording. The first pictures arrive within a few minutes.' : 'Not recording.'; return; }
     const hrs = (f[f.length - 1].t - f[0].t) / 3600000;
     el.textContent = (hrs < 1.5 ? Math.round(hrs * 60) + ' min' : hrs < 48 ? Math.round(hrs) + ' hours' : Math.round(hrs / 24) + ' days') + ' saved · ' + mb(info.bytes) + (info.days ? '' : ' · paused');
   }
-  async function recRefresh() { if (shellApi) recShow(await shellApi.recInfo()); }
+  async function recRefresh() { if (shellApi) { recShow(await shellApi.recInfo('radar')); recShow(await shellApi.recInfo('sat')); } }
   function recInit() {
-    if (!shellApi) { $('#recBox').classList.add('hidden'); return; }
-    const send = async days => { const l = SW.loc(); recShow(await shellApi.recSet({ days, lat: l ? l.lat : undefined, lon: l ? l.lon : undefined })); };
-    $('#recDays').onchange = async e => { const d = +e.target.value; await send(d); if (d) SW.toast('Recording radar around your place. It records whenever Skywatch is running; use the bell to keep it running after you close the window.'); };
-    $('#recClear').onclick = async () => { if (!confirm('Delete every radar recording saved on this computer? This cannot be undone.')) return; recShow(await shellApi.recClear()); if (st.map.radar === 'rec') buildRadar(); };
-    $('#recWin').onchange = e => { recWinSel = +e.target.value; buildRadar(); };
-    SW.on('loc', async () => { const i = await shellApi.recInfo(); if (i.days) send(i.days); });
-    shellApi.recInfo().then(i => { recShow(i); if (i.days) send(i.days); });
+    if (!shellApi) { $('#recBox').classList.add('hidden'); $('#satRecBox').classList.add('hidden'); return; }
+    const here = () => { const l = SW.loc(); return l ? { lat: l.lat, lon: l.lon } : {}; };
+    for (const k of ['radar', 'sat']) {
+      const u = REC_UI[k];
+      $(u.days).onchange = async e => {
+        const d = +e.target.value, c = Object.assign({ kind: k }, here()); c[k === 'sat' ? 'satDays' : 'days'] = d;
+        recShow(await shellApi.recSet(c));
+        if (d) SW.toast('Recording ' + u.what + ' around your place. Skywatch keeps recording from the tray after you close the window.');
+      };
+      $(u.clear).onclick = async () => { if (!confirm('Delete every ' + u.what + ' recording saved on this computer? This cannot be undone.')) return; recShow(await shellApi.recClear(k)); if (k === 'radar' ? st.map.radar === 'rec' : st.map.sat === 'rec') (k === 'radar' ? buildRadar : buildSat)(); };
+      $(u.win).onchange = e => { recWinSel[k] = +e.target.value; (k === 'radar' ? buildRadar : buildSat)(); };
+    }
+    // the recorder follows the chosen place
+    SW.on('loc', async () => { recShow(await shellApi.recSet(Object.assign({ kind: 'radar' }, here()))); });
+    shellApi.recSet(Object.assign({ kind: 'radar' }, here())).then(recShow).then(() => shellApi.recInfo('sat')).then(recShow);
   }
-  async function recFrames() {
+  async function recFrames(k) {
     if (!shellApi) return [];
-    const info = await shellApi.recInfo(), f = info.frames; recShow(info);
-    if (!f.length) { SW.toast(info.days ? 'Nothing recorded yet. Give it a minute.' : 'Nothing recorded yet. Choose how long to keep under Record.'); $('#recWin').innerHTML = ''; return []; }
+    const u = REC_UI[k], info = await shellApi.recInfo(k), f = info.frames; recShow(info);
+    if (!f.length) { SW.toast(info.days ? 'Nothing recorded yet. Give it a few minutes.' : 'Nothing recorded yet. Choose how long to keep under Record.'); $(u.win).innerHTML = ''; return []; }
     // offer the recording in 6-hour pieces, newest first, so a loop stays a sensible length
     const W = 6 * 3600000, wins = Array.from(new Set(f.map(x => Math.floor(x.t / W) * W))).sort((a, b) => b - a);
-    if (!wins.includes(recWinSel)) recWinSel = wins[0];
-    $('#recWin').innerHTML = wins.map(w => '<option value="' + w + '">' + SW.fmt(w / 1000, null, 'date') + ', ' + SW.fmt(w / 1000, null, 'hour') + ' to ' + SW.fmt((w + W) / 1000, null, 'hour') + '</option>').join('');
-    $('#recWin').value = recWinSel;
+    if (!wins.includes(recWinSel[k])) recWinSel[k] = wins[0];
+    $(u.win).innerHTML = wins.map(w => '<option value="' + w + '">' + SW.fmt(w / 1000, null, 'date') + ', ' + SW.fmt(w / 1000, null, 'hour') + ' to ' + SW.fmt((w + W) / 1000, null, 'hour') + '</option>').join('');
+    $(u.win).value = recWinSel[k];
     const n = 2 ** info.z, lat = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI, lon = x => x / n * 360 - 180;
-    return f.filter(x => x.t >= recWinSel && x.t < recWinSel + W).map(x => ({
-      t: x.t, mk: () => L.tileLayer(info.base + '/' + x.t + '/{z}/{x}/{y}.png', { pane: 'radar', minNativeZoom: info.z, maxNativeZoom: info.z, maxZoom: 19, bounds: [[lat(x.y + 2) + 0.02, lon(x.x - 1) + 0.02], [lat(x.y - 1) - 0.02, lon(x.x + 2) - 0.02]], attribution: 'Recorded on this computer · NEXRAD via Iowa Environmental Mesonet' })
+    const pane = k === 'sat' ? 'sat' : 'radar', by = k === 'sat' ? 'NASA GIBS / NOAA GOES' : 'NEXRAD via Iowa Environmental Mesonet';
+    return f.filter(x => x.t >= recWinSel[k] && x.t < recWinSel[k] + W).map(x => ({
+      t: x.t, mk: () => L.tileLayer(info.base + '/' + x.t + '/{z}/{x}/{y}.png', { pane, minNativeZoom: info.z, maxNativeZoom: info.z, maxZoom: 19, bounds: [[lat(x.y + 2) + 0.02, lon(x.x - 1) + 0.02], [lat(x.y - 1) - 0.02, lon(x.x + 2) - 0.02]], attribution: 'Recorded on this computer · ' + by })
     }));
   }
   SW.recTest = async function recTest() { // self-test: record the last hour, then replay it
     if (!shellApi) return 'no shell';
-    const l = SW.loc(), wait = ms => new Promise(r => setTimeout(r, ms)); let info = await shellApi.recSet({ days: 1, lat: l.lat, lon: l.lon });
-    for (let i = 0; i < 40 && info.frames.length < 12; i++) { await wait(3000); info = await shellApi.recInfo(); }
+    const l = SW.loc(), wait = ms => new Promise(r => setTimeout(r, ms)); let info = await shellApi.recSet({ kind: 'radar', days: 1, satDays: 1, lat: l.lat, lon: l.lon });
+    let sat = await shellApi.recInfo('sat');
+    for (let i = 0; i < 60 && (info.frames.length < 12 || sat.frames.length < 6); i++) { await wait(3000); info = await shellApi.recInfo('radar'); sat = await shellApi.recInfo('sat'); }
     let ok = 0, bad = 0; const fails = []; L.TileLayer.addInitHook(function cnt() { this.on('tileload', () => ok++); this.on('tileerror', e => { bad++; fails.push(e.tile.src.slice(-40)); }); });
-    await SW.show('map'); const s = $('#radarSel'); s.value = 'rec'; s.dispatchEvent(new Event('change')); await wait(2500); $('#tlPlay').click(); await wait(7000); $('#tlPlay').click();
-    return { frames: info.frames.length, bytes: info.bytes, loopFrames: +$('#tlSlider').max + 1, tilesLoaded: ok, tilesFailed: bad, fails: Array.from(new Set(fails)).slice(0, 12), label: $('#recInfo').textContent, window: $('#recWin').selectedOptions[0] && $('#recWin').selectedOptions[0].textContent, time: $('#tlTime').textContent };
+    await SW.show('map'); const s = $('#radarSel'); s.value = 'rec'; s.dispatchEvent(new Event('change')); const ss = $('#satSel'); ss.value = 'rec'; ss.dispatchEvent(new Event('change')); await wait(3500); $('#tlPlay').click(); await wait(7000); $('#tlPlay').click();
+    return { frames: info.frames.length, bytes: info.bytes, satFrames: sat.frames.length, satBytes: sat.bytes, satLabel: $('#satInfo').textContent, satWindow: $('#satWin').selectedOptions[0] && $('#satWin').selectedOptions[0].textContent, loopFrames: +$('#tlSlider').max + 1, tilesLoaded: ok, tilesFailed: bad, fails: Array.from(new Set(fails)).slice(0, 12), label: $('#recInfo').textContent, window: $('#recWin').selectedOptions[0] && $('#recWin').selectedOptions[0].textContent, time: $('#tlTime').textContent };
   };
 
   // ---------- radar sites ----------

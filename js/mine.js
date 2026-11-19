@@ -48,6 +48,7 @@
     }
     lent = [];
     $$('#mnGrid .mn-body').forEach(b => b.innerHTML = '');
+    setTimeout(() => SW.fitCharts(), 60); // back at home size
   }
   function borrow(i) {
     const p = st.mine[i], body = $('#mnGrid .mn-p[data-i="' + i + '"] .mn-body'); if (!p || !body) return false;
@@ -69,6 +70,7 @@
       lent = lent.filter(o => { if (o.map || o.ph.isConnected) return true; o.el.remove(); return false; });
       let missing = 0;
       st.mine.forEach((p, i) => { if (!borrow(i)) { missing++; if (n > 14) { const b = $('#mnGrid .mn-p[data-i="' + i + '"] .mn-body'); if (b && !b.children.length) b.innerHTML = '<div class="state">This panel is not on the ' + esc(pageName(p.v)) + ' page right now (it may only show for some places or some weather).</div>'; } } });
+      SW.fitCharts($('#mnGrid'));
       if (++n > 30) clearInterval(watchT);
     }, 1000);
   }
@@ -146,6 +148,7 @@
     await Promise.all(views.map(v => SW.loadView(v)));
     if (g !== gen || !$('#v-mine').classList.contains('on')) return;
     st.mine.forEach((p, i) => borrow(i));
+    setTimeout(() => SW.fitCharts($('#mnGrid')), 60);
     watch(g);
   }
   SW.mine = { load, giveBack };

@@ -309,3 +309,13 @@ body.explain select,body.explain button,body.explain .kv>div,body.explain .idx>d
 .mn-body>.card{margin:0;flex:1}
 .mn-mapbox{position:relative;height:540px;border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
 .mn-mapbox #timeline{right:12px}
+/* Your page: what a panel holds grows to fill the panel */
+#mnGrid .mn-body>.card{display:flex;flex-direction:column;overflow:hidden}
+#mnGrid .mn-body>.card>.chart{flex:1 1 0;height:auto;min-height:200px}
+#mnGrid .mn-body>.card>.days{flex:1 1 0;min-height:150px}
+#mnGrid .days .day{display:flex;flex-direction:column;justify-content:space-evenly;font-size:15px;padding:12px 6px}
+#mnGrid .days .day .i{font-size:40px;line-height:1}
+#mnGrid .days .day .i img,#mnGrid .days .day .i svg{width:54px;height:54px}
+#mnGrid .days .day .hi{font-size:22px}
+#mnGrid .days .day .lo{font-size:17px}
+#mnGrid .days .day .p,#mnGrid .days .day .cert{font-size:13px;height:auto}

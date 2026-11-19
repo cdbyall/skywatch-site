@@ -224,6 +224,10 @@
     host._u = u; charts.add(u); ro.observe(host);
     return u;
   };
+  // charts moved between pages (Your page) are sized again to their new box
+  SW.fitCharts = function fitCharts(root) {
+    (root || document).querySelectorAll('.chart').forEach(function fit(h) { const u = h._u; if (!u || !h.clientWidth) return; const w = h.clientWidth, ht = Math.max(120, h.clientHeight - (h._lg || 0)); if (Math.abs(u.width - w) > 2 || Math.abs(u.height - ht) > 2) u.setSize({ width: w, height: ht }); });
+  };
 
   // generic point->Open-Meteo url
   SW.omUrl = function omUrl(base, loc, q) {

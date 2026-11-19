@@ -1,7 +1,7 @@
 // Skywatch forecast: current conditions, 10 days, hourly charts, NWS text, air quality.
 (function forecastMod() {
   const { $, api, U, n, esc } = SW;
-  let span = 24, data = null;
+  let span = 24, data = null, ensDays = null, nwsP = null, openI = -1;
 
   function moon(ts) {
     const p = (((ts - 947182440) / 2551442.8) % 1 + 1) % 1; // since new moon 2000-01-06 18:14 UTC
@@ -30,11 +30,11 @@
       kv('Pressure', n(c.pressure_msl, 1) + ' hPa') + kv('Cloud', n(c.cloud_cover) + '%') + kv('Visibility', vis == null ? '—' : n(Math.min(vis, 99), vis < 10 ? 1 : 0) + ' ' + U.d()) + kv('UV index', n(c.uv_index, 1)) +
       kv('Sunrise', SW.fmt(dl.sunrise[0], tz, 'time')) + kv('Sunset', SW.fmt(dl.sunset[0], tz, 'time')) + kv('Moon', m.icon + ' ' + m.lit + '%') + kv('Air quality', '<span id="fcAqi">…</span>') +
       '</div></div></div>' +
-      next24() +
       '<div class="card"><h2>10-day outlook</h2><div class="days">' + dl.time.map(function day(t, i) {
         const x = SW.wx(SW.dryCode(dl.weather_code[i], dl.precipitation_sum[i]));
-        return '<div class="day" title="' + x.text + '"><div class="dim small">' + (i ? SW.fmt(t + 43200, tz, 'day') : 'Today') + '</div><div class="i">' + x.icon + '</div><div class="hi">' + n(dl.temperature_2m_max[i]) + '°</div><div class="lo">' + n(dl.temperature_2m_min[i]) + '°</div><div class="p">' + (dl.precipitation_probability_max[i] >= 15 ? '💧' + dl.precipitation_probability_max[i] + '%' : '') + '</div><div class="dim small">' + (dl.precipitation_sum[i] > 0 ? n(dl.precipitation_sum[i], U.us() ? 2 : 1) + ' ' + U.p() : '&nbsp;') + '</div></div>';
-      }).join('') + '</div></div>' +
+        return '<div class="day" data-i="' + i + '" role="button" tabindex="0" title="' + x.text + ' (click for the day)"><div class="dim small">' + (i ? SW.fmt(t + 43200, tz, 'day') : 'Today') + '</div><div class="i">' + x.icon + '</div><div class="hi">' + n(dl.temperature_2m_max[i]) + '°</div><div class="lo">' + n(dl.temperature_2m_min[i]) + '°</div><div class="p">' + (dl.precipitation_probability_max[i] >= 15 ? '💧' + dl.precipitation_probability_max[i] + '%' : '') + '</div><div class="dim small">' + (dl.precipitation_sum[i] > 0 ? n(dl.precipitation_sum[i], U.us() ? 2 : 1) + ' ' + U.p() : '&nbsp;') + '</div><div class="cert" data-c="' + i + '"></div></div>';
+      }).join('') + '</div><div class="dim small" style="margin-top:8px">Click a day for its forecast. The % is how sure the forecast is: how closely 82 separate forecast runs agree.</div></div>' +
+      '<div class="card hidden" id="fcDayCard"></div>' + next24() +
       '<div class="grid g2">' +
       '<div class="card"><h2>Temperature</h2><div class="chart" id="chT"></div></div>' +
       '<div class="card"><h2>Rain &amp; snow</h2><div class="chart" id="chP"></div></div>' +
@@ -42,8 +42,68 @@
       '<div class="card"><h2>Pressure &amp; cloud</h2><div class="chart" id="chC"></div></div>' +
       '</div>' +
       '<div class="card"><h2>National Weather Service forecast</h2><div id="fcNws"><div class="state"><span class="spin"></span>Loading…</div></div></div>';
-    spanButtons(); charts(); nws(loc); aqi(loc); recLine(loc, tz);
+    spanButtons(); charts(); nws(loc); aqi(loc); recLine(loc, tz); ensDays = null; openI = -1;
+    SW.$$('#fcBody .day[data-i]').forEach(function dayClick(el) { const go = () => openDay(+el.dataset.i); el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
+    certainty(loc);
   }
+
+  // How sure is the forecast? The US (GEFS, 31 runs) and European (ECMWF, 51 runs) ensembles each run their model many
+  // times from slightly different starting points. Where the runs agree, the forecast is solid; where they scatter, it
+  // is shaky. Per day: the share of runs that agree on rain or no rain (0.05 in or more), and how tightly their highs
+  // cluster. Both are real model output, not a guess of ours.
+  async function certainty(loc) {
+    try {
+      const j = await api.json('https://ensemble-api.open-meteo.com/v1/ensemble?latitude=' + loc.lat.toFixed(4) + '&longitude=' + loc.lon.toFixed(4) + '&hourly=temperature_2m,precipitation&models=gfs025,ecmwf_ifs025&forecast_days=10&timezone=auto&timeformat=unixtime&temperature_unit=fahrenheit&precipitation_unit=inch', 3600);
+      if (!data || !$('#fcBody')) return;
+      const H = j.hourly, keys = Object.keys(H).filter(k => k.indexOf('temperature_2m') === 0), dl = data.daily, out = [];
+      dl.time.forEach(function dayCert(t0, i) {
+        const t1 = dl.time[i + 1] || t0 + 86400, idx = []; H.time.forEach((t, k) => { if (t >= t0 && t < t1) idx.push(k); });
+        const his = [], wets = [];
+        for (const k of keys) { const P = H[k.replace('temperature_2m', 'precipitation')]; let hi = null, rain = 0, got = 0; for (const q of idx) { const v = H[k][q]; if (v == null) continue; got++; if (hi == null || v > hi) hi = v; if (P && P[q] != null) rain += P[q]; } if (got >= 4) { his.push(hi); wets.push(rain >= 0.05); } }
+        if (his.length < 10) { out.push(null); return; }
+        const mean = his.reduce((a, b) => a + b, 0) / his.length, sd = Math.sqrt(his.reduce((a, b) => a + (b - mean) * (b - mean), 0) / his.length), srt = his.slice().sort((a, b) => a - b);
+        const pWet = wets.filter(Boolean).length / wets.length, rainAgree = Math.max(pWet, 1 - pWet), tempScore = Math.max(40, Math.min(100, 100 - (sd - 1) * 10));
+        out.push({ cert: Math.round((rainAgree * 100 + tempScore) / 2), pWet, n: his.length, sd, p10: srt[Math.floor(srt.length * 0.1)], p90: srt[Math.floor(srt.length * 0.9)] });
+      });
+      ensDays = out;
+      out.forEach(function showCert(c, i) { const el = $('#fcBody .cert[data-c="' + i + '"]'); if (!el || !c) return; el.innerHTML = '<span style="color:' + certCol(c.cert) + '">' + c.cert + '% sure</span>'; });
+      if (openI >= 0) openDay(openI, true);
+    } catch (e) { /* without the ensembles the outlook still stands; the % just stays blank */ }
+  }
+  const certCol = c => c >= 80 ? '#3ddc97' : c >= 65 ? '#a6f0c8' : c >= 50 ? '#ffd24a' : '#ff8a4a';
+  const certWord = c => c >= 80 ? 'Confident' : c >= 65 ? 'Fairly sure' : c >= 50 ? 'Unsure' : 'A toss-up';
+
+  // one day in full: what to expect, hour by hour, and how sure the forecast is
+  function openDay(i, quiet) {
+    const box = $('#fcDayCard'); if (!box || !data) return;
+    if (openI === i && !quiet) { openI = -1; box.classList.add('hidden'); SW.$$('#fcBody .day').forEach(e => e.classList.remove('on')); return; }
+    openI = i; SW.$$('#fcBody .day').forEach(e => e.classList.toggle('on', +e.dataset.i === i));
+    const d = data, dl = d.daily, h = d.hourly, tz = d.timezone, t0 = dl.time[i], t1 = dl.time[i + 1] || t0 + 86400, now = Date.now() / 1000;
+    const idx = []; h.time.forEach((t, k) => { if (t >= t0 && t < t1) idx.push(k); });
+    const code = SW.dryCode(dl.weather_code[i], dl.precipitation_sum[i]), w = SW.wx(code), pr = dl.precipitation_sum[i] || 0, chance = dl.precipitation_probability_max[i];
+    let iH = idx[0], iL = idx[0], iG = idx[0]; idx.forEach(k => { if (h.temperature_2m[k] > h.temperature_2m[iH]) iH = k; if (h.temperature_2m[k] < h.temperature_2m[iL]) iL = k; if ((h.wind_gusts_10m[k] || 0) > (h.wind_gusts_10m[iG] || 0)) iG = k; });
+    const wetH = idx.filter(k => (h.precipitation[k] || 0) >= (U.us() ? 0.01 : 0.25)), title = i ? new Date((t0 + 43200) * 1000).toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' }) : 'Today';
+    const when = wetH.length ? ' Rain is most likely between ' + SW.fmt(h.time[wetH[0]], tz, 'hour') + ' and ' + SW.fmt(h.time[wetH[wetH.length - 1]] + 3600, tz, 'hour') + '.' : '';
+    const story = w.text + '. High ' + n(dl.temperature_2m_max[i]) + '° around ' + SW.fmt(h.time[iH], tz, 'hour') + ', low ' + n(dl.temperature_2m_min[i]) + '° around ' + SW.fmt(h.time[iL], tz, 'hour') + '. ' +
+      (pr >= (U.us() ? 0.05 : 1) ? 'About <b>' + n(pr, U.us() ? 2 : 1) + ' ' + U.p() + '</b> of rain (' + chance + '% chance).' + when : chance >= 30 ? 'A ' + chance + '% chance of a little rain.' + when : 'Staying mostly dry.') +
+      (iG != null && h.wind_gusts_10m[iG] != null ? ' Gusts up to ' + n(h.wind_gusts_10m[iG]) + ' ' + U.w() + ' around ' + SW.fmt(h.time[iG], tz, 'hour') + '.' : '');
+    const c = ensDays && ensDays[i], T = f => n(U.us() ? f : (f - 32) * 5 / 9) + '°';
+    const sure = c ? '<div class="fc-sure"><b style="color:' + certCol(c.cert) + '">' + c.cert + '% sure · ' + certWord(c.cert) + '</b><div class="dim small" style="line-height:1.5;margin-top:4px">' +
+        Math.round(Math.max(c.pWet, 1 - c.pWet) * 100) + '% of ' + c.n + ' forecast runs agree it will be ' + (c.pWet >= 0.5 ? 'wet (0.05 ' + 'in or more)' : 'dry') + '. Most of them put the high between ' + T(c.p10) + ' and ' + T(c.p90) + '.</div></div>'
+      : '<div class="dim small">' + (ensDays ? 'How sure: not available for this day.' : '<span class="spin"></span> Checking how sure the forecast is…') + '</div>';
+    const nwsTxt = (nwsP || []).filter(q => { const t = Date.parse(q.startTime) / 1000; return t >= t0 - 3600 && t < t1 - 3600; }).map(q => '<p style="margin:6px 0"><b>' + esc(q.name) + ':</b> ' + esc(q.detailedForecast) + '</p>').join('');
+    const rows = idx.filter((k, q) => q % 3 === 0 && h.time[k] + 3600 > (i ? 0 : now)).map(function hourRow(k) { const x = SW.wx(h.weather_code[k], false); return '<div class="fc-hr"><span>' + SW.fmt(h.time[k], tz, 'hour') + '</span><em>' + x.icon + '</em><b>' + n(h.temperature_2m[k]) + '°</b><span class="dim">💧' + n(h.precipitation_probability[k] || 0) + '%</span><span class="dim">' + n(h.wind_speed_10m[k]) + ' ' + U.w() + '</span></div>'; }).join('');
+    box.innerHTML = '<h2>' + esc(title) + '<span class="spacer"></span><button class="btn ghost" id="fcDayX" title="Close">✕</button></h2>' +
+      '<div class="hero" style="gap:18px;align-items:flex-start;flex-wrap:wrap"><div class="ico">' + w.icon + '</div><div style="flex:1;min-width:260px"><div style="font-size:15px;line-height:1.55">' + story + '</div>' + sure +
+      '<div class="kv" style="margin-top:10px;grid-template-columns:repeat(4,auto)">' + kv('Sunrise', SW.fmt(dl.sunrise[i], tz, 'time')) + kv('Sunset', SW.fmt(dl.sunset[i], tz, 'time')) + kv('Peak UV', n(dl.uv_index_max[i], 1)) + kv('Rain chance', chance + '%') + '</div></div></div>' +
+      '<div class="chart" id="chDay" style="height:220px;margin-top:12px"></div><div class="fc-hrs">' + rows + '</div>' +
+      (nwsTxt ? '<h2 style="margin-top:14px">National Weather Service</h2>' + nwsTxt : '');
+    box.classList.remove('hidden');
+    $('#fcDayX').onclick = () => openDay(i);
+    SW.chart($('#chDay'), { tz, unit: U.t(), y2: { unit: 'chance %', range: [0, 100] }, data: [idx.map(k => h.time[k]), idx.map(k => h.temperature_2m[k]), idx.map(k => h.precipitation_probability[k])], series: [{ label: 'Temperature', color: '#ff8a4a', width: 2.5 }, { label: 'Rain chance', color: '#3fc6ff', width: 1.5, scale: 'y2', dec: 0 }] });
+    if (!quiet) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  SW.fcDay = openDay;
   async function recLine(loc, tz) { // today's normal and records, from the History page's record books
     try {
       const s = (await SW.records.load(loc))[0], md = new Intl.DateTimeFormat('en-CA', { timeZone: tz, month: '2-digit', day: '2-digit' }).format(new Date()).replace('/', '-'), d = s.day[md], nm = SW.records.normal(s, md), el = $('#fcRec'); if (!el || !d) return;
@@ -82,7 +142,7 @@
     const box = $('#fcNws');
     try {
       const p = await SW.nwsPoint(loc);
-      const f = await api.json(p.forecast + (U.us() ? '' : '?units=si'), 900);
+      const f = await api.json(p.forecast + (U.us() ? '' : '?units=si'), 900); nwsP = f.properties.periods; if (openI >= 0) openDay(openI, true);
       box.innerHTML = '<div class="periods">' + f.properties.periods.slice(0, 14).map(q => '<div class="period"><b>' + esc(q.name) + '<div class="dim small" style="font-weight:400">' + q.temperature + '°' + q.temperatureUnit + (q.probabilityOfPrecipitation && q.probabilityOfPrecipitation.value ? ' · 💧' + q.probabilityOfPrecipitation.value + '%' : '') + '</div></b><div>' + esc(q.detailedForecast) + '</div></div>').join('') + '</div>';
       // nearest real observation
       // only a station that reads like this place (close, same height): the one the diary picked

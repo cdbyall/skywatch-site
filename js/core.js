@@ -224,6 +224,48 @@
     host._u = u; charts.add(u); ro.observe(host);
     return u;
   };
+  // ---------- forecaster products and alert text, typeset ----------
+  // Weather Service text comes hard-wrapped at 66 columns with teletype markers. This keeps every word as written
+  // and only changes the layout: the title block, ".SECTION..." headings, bullets, "* WHAT..." labels and && breaks.
+  // The original text is always one click away underneath.
+  SW.prod = function prod(text, opt) {
+    opt = opt || {};
+    const e = SW.esc, raw = String(text || '').replace(/\r/g, '').replace(/\s+$/, '');
+    const lines = raw.split('\n');
+    let i = 0;
+    // teletype codes at the top: "000", the WMO line ("FXUS66 KMTR 191244"), the product id ("AFDMTR")
+    while (i < lines.length && (/^\s*$/.test(lines[i]) || /^\d{3}\s*$/.test(lines[i]) || /^[A-Z]{4}\d{2} [A-Z]{4} \d{6}/.test(lines[i]) || /^[A-Z0-9]{4,6}\s*$/.test(lines[i]))) i++;
+    let head = '';
+    if (!opt.bare) { // the title block runs to the first blank line
+      const tb = []; while (i < lines.length && lines[i].trim()) tb.push(lines[i++].trim());
+      if (tb.length && tb.length <= 5) head = '<div class="pd-head"><div class="pd-title">' + e(tb[0]) + '</div>' + tb.slice(1).map(x => '<div class="pd-meta">' + e(x) + '</div>').join('') + '</div>';
+      else i -= tb.length;
+    }
+    const cap = s => { s = s.trim().toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };
+    let out = '', para = [], list = null, li = null;
+    const flushPara = () => { if (para.length) { out += '<p>' + e(para.join(' ').replace(/\s+/g, ' ').trim()) + '</p>'; para = []; } };
+    const flushList = () => { if (list) { if (li) list.push(li); if (list.length) out += '<ul>' + list.map(x => '<li>' + (x.k ? '<b>' + e(cap(x.k)) + '</b> ' : '') + e(x.t.join(' ').replace(/\s+/g, ' ').trim()) + '</li>').join('') + '</ul>'; list = null; li = null; } };
+    const flush = () => { flushPara(); flushList(); };
+    for (; i < lines.length; i++) {
+      const L = lines[i], s = L.trim();
+      if (!s) { flushPara(); if (li) { list.push(li); li = null; } continue; } // a blank line between bullets keeps one list
+      if (s === '&&' || s === '$$') { flush(); out += '<hr>'; continue; }
+      let m;
+      if ((m = /^\.([A-Z][A-Z0-9 /&()\-,]{1,60}?)\.\.\.\s*(.*)$/.exec(s))) { flush(); out += '<h3>' + e(cap(m[1])) + '</h3>'; if (m[2]) para.push(m[2]); continue; }
+      if ((m = /^\.\.\.(.{2,80}?)\.\.\.\s*$/.exec(s))) { flush(); out += '<h4>' + e(cap(m[1])) + '</h4>'; continue; }
+      if ((m = /^\*\s*([A-Z][A-Z /]{1,30})\.\.\.\s*(.*)$/.exec(s))) { flushPara(); if (!list) list = []; if (li) list.push(li); li = { k: m[1], t: [m[2]] }; continue; }
+      if ((m = /^[-*•]\s+(.*)$/.exec(s))) { flushPara(); if (!list) list = []; if (li) list.push(li); li = { t: [m[1]] }; continue; }
+      if (li) { li.t.push(s); continue; } // a line right under a bullet (no blank line between) continues it
+      if (list) flushList();
+      if (/^(Issued|Updated) at /i.test(s) && s.length < 70) { flushPara(); out += '<p class="pd-when">' + e(s) + '</p>'; continue; }
+      if (/^\([^()]{2,60}\)$/.test(s)) { flushPara(); out += '<p class="pd-sub">' + e(s.slice(1, -1)) + '</p>'; continue; }
+      para.push(s);
+    }
+    flush();
+    out = out.replace(/(<hr>)+$/, '').replace(/(<hr>){2,}/g, '<hr>');
+    const orig = opt.noRaw ? '' : '<details class="pd-raw"><summary>Original text</summary><pre class="prod">' + e(raw) + '</pre></details>';
+    return '<div class="prod-doc">' + head + out + '</div>' + orig;
+  };
   // charts moved between pages (Your page) are sized again to their new box
   SW.fitCharts = function fitCharts(root) {
     (root || document).querySelectorAll('.chart').forEach(function fit(h) { const u = h._u; if (!u || !h.clientWidth) return; const w = h.clientWidth, ht = Math.max(120, h.clientHeight - (h._lg || 0)); if (Math.abs(u.width - w) > 2 || Math.abs(u.height - ht) > 2) u.setSize({ width: w, height: ht }); });

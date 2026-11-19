@@ -53,7 +53,7 @@
       '<div class="card" style="margin:12px 0"><div class="kv" style="grid-template-columns:repeat(3,auto)"><div><span>Issued</span><b>' + t(p.sent) + '</b></div><div><span>Starts</span><b>' + t(p.onset || p.effective) + '</b></div><div><span>Ends</span><b>' + t(p.ends || p.expires) + '</b></div></div></div>' +
       (f.geometry ? '<p><button class="btn" id="alMap">Show on the map</button></p>' : '') +
       '<p><b>' + esc(p.headline || '') + '</b></p><p class="dim">' + esc(p.areaDesc || '') + '</p>' +
-      '<pre class="prod">' + esc(p.description || '') + '</pre>' + (p.instruction ? '<h3 style="margin:16px 0 6px;color:var(--warn)">What to do</h3><pre class="prod">' + esc(p.instruction) + '</pre>' : '');
+      SW.prod(p.description || '', { bare: true, noRaw: true }) + (p.instruction ? '<div class="pd-do"><h3>What to do</h3>' + SW.prod(p.instruction, { bare: true, noRaw: true }) + '</div>' : '');
     const mb = $('#alMap'); if (mb) mb.onclick = () => { SW.show('map'); SW.map.focus(f); };
   }
   SW.openAlert = function openAlert(id) { SW.show('alerts'); load().then(() => { select(id); const e = $('#alList .al.on'); if (e) e.scrollIntoView({ block: 'center' }); }); };

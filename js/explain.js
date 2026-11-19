@@ -333,6 +333,8 @@
     ['.mn-up', 'Move this panel one place earlier on Your page.'],
     ['.mn-dn', 'Move this panel one place later on Your page.'],
     ['.mn-x', 'Take this panel off Your page. It stays on its own page.'],
+    ['.prod-doc', 'The forecasters\' own words, laid out for reading. Times ending in Z are in universal time. Original text, underneath, shows it exactly as it was sent.'],
+    ['.pd-raw summary', 'Show the text exactly as the Weather Service sent it, line for line.'],
     ['.mn-wait', 'This panel is on its way from its own page. It fills in as soon as the latest data arrives.'],
     ['.mn-miss', 'This panel is not showing on its own page right now. Some panels only appear for some places or some weather.'],
     ['.mn-empty', 'Your page is empty. Add the panels you look at most from any of the other pages.'],

@@ -17,7 +17,7 @@
       const list = (await api.json(url, 600))['@graph'] || [];
       if (!list.length) { body.innerHTML = '<div class="state">This office has not issued one recently.</div>'; return; }
       const ver = $('#brVer'); ver.innerHTML = list.slice(0, 12).map(x => '<option value="' + x.id + '">' + SW.fmt(Date.parse(x.issuanceTime) / 1000, null, 'full') + '</option>').join('');
-      const show = async id => { SW.loading(body); try { const p = await api.json('https://api.weather.gov/products/' + id, 86400); body.innerHTML = '<pre class="prod">' + esc(p.productText.trim()) + '</pre>'; } catch (e) { SW.fail(body, e, () => show(id)); } };
+      const show = async id => { SW.loading(body); try { const p = await api.json('https://api.weather.gov/products/' + id, 86400); body.innerHTML = SW.prod(p.productText); } catch (e) { SW.fail(body, e, () => show(id)); } };
       ver.onchange = e => show(e.target.value);
       await show(list[0].id);
     } catch (e) {

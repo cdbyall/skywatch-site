@@ -293,7 +293,7 @@ body.explain select,body.explain button,body.explain .kv>div,body.explain .idx>d
 .mn-opt span{flex:1}
 .mn-opt .btn{padding:3px 12px;font-size:12px}
 .mn-empty{max-width:640px}
-#mnGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:14px;align-items:start}
+#mnGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));grid-auto-rows:1fr;gap:14px;align-items:stretch}
 .mn-p{min-width:0;border-radius:var(--r);outline:2px solid transparent;transition:outline-color .15s}
 .mn-p.wide{grid-column:1/-1}
 .mn-p.drag{opacity:.45}
@@ -303,6 +303,9 @@ body.explain select,body.explain button,body.explain .kv>div,body.explain .idx>d
 .mn-from{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mn-bar button{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:1px 8px;font-size:12px;cursor:pointer}
 .mn-bar button:hover{color:var(--txt,#fff);border-color:var(--dim)}
-.mn-body>.card{margin:0}
+.mn-p{display:flex;flex-direction:column}
+.mn-body{flex:1;display:flex;flex-direction:column}
+.mn-p:not(.wide) .mn-body{min-height:440px}
+.mn-body>.card{margin:0;flex:1}
 .mn-mapbox{position:relative;height:540px;border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
 .mn-mapbox #timeline{right:12px}

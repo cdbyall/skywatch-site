@@ -333,6 +333,8 @@
     ['.mn-up', 'Move this panel one place earlier on Your page.'],
     ['.mn-dn', 'Move this panel one place later on Your page.'],
     ['.mn-x', 'Take this panel off Your page. It stays on its own page.'],
+    ['.mn-wait', 'This panel is on its way from its own page. It fills in as soon as the latest data arrives.'],
+    ['.mn-miss', 'This panel is not showing on its own page right now. Some panels only appear for some places or some weather.'],
     ['.mn-empty', 'Your page is empty. Add the panels you look at most from any of the other pages.'],
     ['#mdTable td', 'That model\'s high and low for the day, with its total rain underneath.'],
     ['#sdModel', el => 'Which computer forecast the sounding comes from. ' + (MODEL[MODEL_ID[el.value]] || '')],

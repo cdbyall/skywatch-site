@@ -30,7 +30,7 @@
       kv('Pressure', n(c.pressure_msl, 1) + ' hPa') + kv('Cloud', n(c.cloud_cover) + '%') + kv('Visibility', vis == null ? '—' : n(Math.min(vis, 99), vis < 10 ? 1 : 0) + ' ' + U.d()) + kv('UV index', n(c.uv_index, 1)) +
       kv('Sunrise', SW.fmt(dl.sunrise[0], tz, 'time')) + kv('Sunset', SW.fmt(dl.sunset[0], tz, 'time')) + kv('Moon', m.icon + ' ' + m.lit + '%') + kv('Air quality', '<span id="fcAqi">…</span>') +
       '</div></div></div>' +
-      '<div class="card"><h2>10-day outlook</h2><div class="days">' + dl.time.map(function day(t, i) {
+      '<div class="card fc-out"><h2>10-day outlook</h2><div class="days">' + dl.time.map(function day(t, i) {
         const x = SW.wx(SW.dryCode(dl.weather_code[i], dl.precipitation_sum[i]));
         return '<div class="day" data-i="' + i + '" role="button" tabindex="0" title="' + x.text + ' (click for the day)"><div class="dim small">' + (i ? SW.fmt(t + 43200, tz, 'day') : 'Today') + '</div><div class="i">' + x.icon + '</div><div class="hi">' + n(dl.temperature_2m_max[i]) + '°</div><div class="lo">' + n(dl.temperature_2m_min[i]) + '°</div><div class="p">' + (dl.precipitation_probability_max[i] >= 15 ? '💧' + dl.precipitation_probability_max[i] + '%' : '') + '</div><div class="dim small">' + (dl.precipitation_sum[i] > 0 ? n(dl.precipitation_sum[i], U.us() ? 2 : 1) + ' ' + U.p() : '&nbsp;') + '</div><div class="cert" data-c="' + i + '"></div></div>';
       }).join('') + '</div><div class="dim small" style="margin-top:8px">Click a day for its forecast. The % is how sure the forecast is: how closely 82 separate forecast runs agree.</div></div>' +
@@ -43,7 +43,7 @@
       '</div>' +
       '<div class="card"><h2>National Weather Service forecast</h2><div id="fcNws"><div class="state"><span class="spin"></span>Loading…</div></div></div>';
     spanButtons(); charts(); nws(loc); aqi(loc); recLine(loc, tz); ensDays = null; openI = -1;
-    SW.$$('#fcBody .day[data-i]').forEach(function dayClick(el) { const go = () => openDay(+el.dataset.i); el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
+    SW.$$('.fc-out .day[data-i]').forEach(function dayClick(el) { const go = () => openDay(+el.dataset.i); el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
     certainty(loc);
   }
 
@@ -66,7 +66,7 @@
         out.push({ cert: Math.round((rainAgree * 100 + tempScore) / 2), pWet, n: his.length, sd, p10: srt[Math.floor(srt.length * 0.1)], p90: srt[Math.floor(srt.length * 0.9)] });
       });
       ensDays = out;
-      out.forEach(function showCert(c, i) { const el = $('#fcBody .cert[data-c="' + i + '"]'); if (!el || !c) return; el.innerHTML = '<span style="color:' + certCol(c.cert) + '">' + c.cert + '% sure</span>'; });
+      out.forEach(function showCert(c, i) { const el = $('.fc-out .cert[data-c="' + i + '"]'); if (!el || !c) return; el.innerHTML = '<span style="color:' + certCol(c.cert) + '">' + c.cert + '% sure</span>'; });
       if (openI >= 0) openDay(openI, true);
     } catch (e) { /* without the ensembles the outlook still stands; the % just stays blank */ }
   }
@@ -76,8 +76,8 @@
   // one day in full: what to expect, hour by hour, and how sure the forecast is
   function openDay(i, quiet) {
     const box = $('#fcDayCard'); if (!box || !data) return;
-    if (openI === i && !quiet) { openI = -1; box.classList.add('hidden'); SW.$$('#fcBody .day').forEach(e => e.classList.remove('on')); return; }
-    openI = i; SW.$$('#fcBody .day').forEach(e => e.classList.toggle('on', +e.dataset.i === i));
+    if (openI === i && !quiet) { openI = -1; box.classList.add('hidden'); SW.$$('.fc-out .day').forEach(e => e.classList.remove('on')); return; }
+    openI = i; SW.$$('.fc-out .day').forEach(e => e.classList.toggle('on', +e.dataset.i === i));
     const d = data, dl = d.daily, h = d.hourly, tz = d.timezone, t0 = dl.time[i], t1 = dl.time[i + 1] || t0 + 86400, now = Date.now() / 1000;
     const idx = []; h.time.forEach((t, k) => { if (t >= t0 && t < t1) idx.push(k); });
     const code = SW.dryCode(dl.weather_code[i], dl.precipitation_sum[i]), w = SW.wx(code), pr = dl.precipitation_sum[i] || 0, chance = dl.precipitation_probability_max[i];
